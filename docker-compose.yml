@@ -1,0 +1,53 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tradewatch-backend:latest
+    working_dir: /var/www/html
+    volumes:
+      - .:/var/www/html
+    ports:
+      - "9000:9000"
+    environment:
+      DB_CONNECTION: pgsql
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_DATABASE: ${DB_DATABASE:-tradewatch}
+      DB_USERNAME: ${DB_USERNAME:-tradewatch}
+      DB_PASSWORD: ${DB_PASSWORD:-tradewatch_dev}
+    depends_on:
+      - db
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:-tradewatch}
+      POSTGRES_USER: ${DB_USERNAME:-tradewatch}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-tradewatch_dev}
+    ports:
+      - "5432:5432"
+    volumes:
+      - tradewatch-db-data:/var/lib/postgresql/data
+
+  queue:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tradewatch-backend:latest
+    working_dir: /var/www/html
+    volumes:
+      - .:/var/www/html
+    command: php artisan queue:work
+    environment:
+      DB_CONNECTION: pgsql
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_DATABASE: ${DB_DATABASE:-tradewatch}
+      DB_USERNAME: ${DB_USERNAME:-tradewatch}
+      DB_PASSWORD: ${DB_PASSWORD:-tradewatch_dev}
+    depends_on:
+      - db
+
+volumes:
+  tradewatch-db-data:
