@@ -33,6 +33,10 @@
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>
+        <!-- Pinned regardless of the local .env's LOGIN_THROTTLE_PER_MINUTE override
+             (Session 39) so HardeningTest's throttle:login assertions always exercise
+             the real production-safe 5/minute limit, not a local dev convenience. -->
+        <env name="LOGIN_THROTTLE_PER_MINUTE" value="5"/>
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>

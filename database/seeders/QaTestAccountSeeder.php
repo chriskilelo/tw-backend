@@ -46,6 +46,7 @@ class QaTestAccountSeeder extends Seeder
         $this->account('sysadmin@tradewatch.go.ke', 'QA System Administrator', 'System Administrator', null, null, $password);
         $this->account('synthetic.attache@tradewatch.go.ke', 'QA Synthetic Attache', 'Ministry Attache', $synthetic->id, $berlin->id, $password);
         $this->account('director@tradewatch.go.ke', 'QA Director External Trade', 'Ministry HQ Officer', $sdt->id, null, $password);
+        $this->account('hqdirector@tradewatch.go.ke', 'QA Ministry HQ Director', 'Ministry HQ Director', $sdt->id, null, $password);
     }
 
     private function account(string $email, string $fullName, string $roleName, ?string $ministryId, ?string $missionId, string $password): void

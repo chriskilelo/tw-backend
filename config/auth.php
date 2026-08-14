@@ -114,4 +114,21 @@ return [
 
     'password_timeout' => env('AUTH_PASSWORD_TIMEOUT', 10800),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Login Throttle
+    |--------------------------------------------------------------------------
+    |
+    | NFR-SEC-004 (Session 38): POST /login is rate-limited per IP to guard
+    | against brute-force credential guessing. The limiter is keyed on IP, not
+    | per-account, so it also caps legitimate automated test suites that log
+    | in as several different fixture accounts in quick succession from the
+    | same host. Production and every committed default stay at 5/minute;
+    | override only in a local, uncommitted .env for a higher-concurrency
+    | local E2E run (see .env's own override and its comment).
+    |
+    */
+
+    'login_throttle_per_minute' => env('LOGIN_THROTTLE_PER_MINUTE', 5),
+
 ];
