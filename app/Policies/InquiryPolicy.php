@@ -16,6 +16,16 @@ use App\Models\User;
  * to Ministry Attache only. view/viewAny is left open to any authenticated
  * ministry-scoped user, matching AlertPolicy's precedent — ministry
  * isolation is enforced by the model's global scope, not this policy.
+ *
+ * link() (FR-INQ-019, API-001 Section 7's literal "Roles Allowed: Ministry
+ * HQ Officer" for POST /inquiries/{id}/link) is deliberately NOT restricted
+ * to the owning attache like the other write abilities here — this is a
+ * cross-mission HQ action, not a per-mission one. Note this diverges from
+ * PermissionCatalogueService's WRITE_TYPE_KEYS catalogue, which still lists
+ * 'inquiry.link' under Ministry Attache (a Session 11 baseline never
+ * reconciled against this endpoint) — per CLAUDE.md Section 10, the
+ * literal API-001 role column is authoritative for endpoint access, the
+ * catalogue is a coarser Sprint-0 working baseline.
  */
 class InquiryPolicy extends BasePolicy
 {
@@ -57,6 +67,11 @@ class InquiryPolicy extends BasePolicy
     public function close(User $user, Inquiry $inquiry): bool
     {
         return $this->isOwningAttache($user, $inquiry);
+    }
+
+    public function link(User $user, Inquiry $inquiry): bool
+    {
+        return $user->role?->name === 'Ministry HQ Officer';
     }
 
     private function isOwningAttache(User $user, Inquiry $inquiry): bool

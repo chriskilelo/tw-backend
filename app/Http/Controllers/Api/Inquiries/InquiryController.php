@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Inquiries;
 use App\Http\Controllers\Concerns\ApiResponds;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\Inquiries\CloseInquiryRequest;
+use App\Http\Requests\Api\Inquiries\LinkInquiryRequest;
 use App\Http\Requests\Api\Inquiries\StoreInquiryEventRequest;
 use App\Http\Requests\Api\Inquiries\StoreInquiryNoteRequest;
 use App\Http\Requests\Api\Inquiries\StoreInquiryRequest;
@@ -13,6 +14,7 @@ use App\Http\Requests\Api\Inquiries\UpdateInquiryStatusRequest;
 use App\Http\Resources\InquiryDetailResource;
 use App\Http\Resources\InquiryResource;
 use App\Models\Inquiry;
+use App\Services\InquiryMatchingService;
 use App\Services\InquiryService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -24,17 +26,17 @@ use InvalidArgumentException;
  * every mutation is delegated to InquiryService (CLAUDE.md Section 11);
  * ministry scoping is applied automatically by the ministry.scope route
  * middleware plus the Inquiry model's global scope.
- *
- * FR-INQ-019 (link to a cross-mission inquiry) is Stage 2 and deliberately
- * not exposed here.
  */
 class InquiryController extends Controller
 {
     use ApiResponds;
 
-    private const array DETAIL_RELATIONS = ['mission', 'loggedBy', 'notes.authoredBy', 'events.loggedBy'];
+    private const array DETAIL_RELATIONS = ['mission', 'loggedBy', 'notes.authoredBy', 'events.loggedBy', 'linkedInquiry.mission'];
 
-    public function __construct(private readonly InquiryService $inquiryService) {}
+    public function __construct(
+        private readonly InquiryService $inquiryService,
+        private readonly InquiryMatchingService $inquiryMatchingService,
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -137,6 +139,37 @@ class InquiryController extends Controller
 
         try {
             $this->inquiryService->closeInquiry($inquiry, $request->validated('resolution_summary'), $request->user());
+        } catch (InvalidArgumentException $e) {
+            return $this->respondWithErrors([$e->getMessage()], 422);
+        }
+
+        return $this->respondWithData(new InquiryDetailResource($inquiry->fresh(self::DETAIL_RELATIONS)));
+    }
+
+    /**
+     * FR-INQ-019. Omitting target_inquiry_id returns suggested cross-mission
+     * matches (AC1, InquiryMatchingService::findMatches()) without
+     * persisting anything; supplying it confirms and persists a symmetric
+     * link (AC2, InquiryService::linkInquiry()) — one endpoint serving both
+     * halves of the requirement, since API-001 Section 7 defines only the
+     * single POST /inquiries/{id}/link route.
+     */
+    public function link(LinkInquiryRequest $request, Inquiry $inquiry): JsonResponse
+    {
+        Gate::authorize('link', $inquiry);
+
+        $targetId = $request->validated('target_inquiry_id');
+
+        if ($targetId === null) {
+            $matches = $this->inquiryMatchingService->findMatches($inquiry);
+
+            return $this->respondWithData(InquiryResource::collection($matches));
+        }
+
+        $target = Inquiry::findOrFail($targetId);
+
+        try {
+            $this->inquiryService->linkInquiry($inquiry, $target, $request->user());
         } catch (InvalidArgumentException $e) {
             return $this->respondWithErrors([$e->getMessage()], 422);
         }

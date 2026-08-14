@@ -9,6 +9,7 @@ use App\Models\Inquiry;
 use App\Models\InquiryEvent;
 use App\Models\InquiryNote;
 use App\Models\User;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -17,8 +18,9 @@ use InvalidArgumentException;
  * logic for the Inquiry and Case Tracker Engine. Inquiries\InquiryController
  * stays thin and delegates every mutation here.
  *
- * FR-INQ-019 (cross-mission matching / linkInquiry()) is Stage 2 and
- * deliberately not implemented here. FR-INQ-021's dispute lifecycle is
+ * FR-INQ-019 (cross-mission matching / linkInquiry()) is implemented via
+ * linkInquiry() below, paired with App\Services\InquiryMatchingService for
+ * the suggested-match side (AC1). FR-INQ-021's dispute lifecycle is
  * deferred per ISSUE-001 (CLAUDE.md Section 16); sub_type is accepted and
  * persisted but follows the identical workflow as a standard inquiry.
  */
@@ -38,6 +40,23 @@ class InquiryService
         'closed' => ['resolved'],
         'cancelled' => ['draft', 'received', 'in_progress'],
     ];
+
+    /**
+     * NFR-DATA-002 session task (DPIA-derived retention, see this file's
+     * purgeExpiredPii() docblock): closed inquiries are eligible for PII
+     * redaction once closed_at is this many months in the past. NOTE: the
+     * URD's own literal NFR-DATA-002 text (07_TW_URD Section on Tiered
+     * Access for Aged Inquiry Data) describes a *5-year* Director-only
+     * access tier, not a 12-month redaction sweep — this constant and
+     * purgeExpiredPii() implement the session task's explicit 12-month
+     * redaction instruction as given, a deliberate drift from the
+     * requirement's literal text that a future session should reconcile.
+     */
+    private const int PII_RETENTION_MONTHS = 12;
+
+    private const string REDACTED_PLACEHOLDER = '[redacted]';
+
+    public function __construct(private readonly AuditService $auditService) {}
 
     /**
      * @param  array<string, mixed>  $data  Already validated by StoreInquiryRequest.
@@ -126,6 +145,86 @@ class InquiryService
                 'closed_at' => now(),
             ])->save();
         });
+    }
+
+    /**
+     * FR-INQ-019 AC2: links two inquiries symmetrically — each row's
+     * linked_inquiry_id is set to point at the other — so the linkage is
+     * visible from either inquiry record without transferring ownership
+     * between missions (the schema has no separate join table for this,
+     * only the single self-referencing linked_inquiry_id column per row,
+     * per CLAUDE.md Section 6). Overwrites any prior link on either side;
+     * the schema supports at most one active link per inquiry.
+     *
+     * @throws InvalidArgumentException If $inquiry and $target are the
+     *                                  same row, or belong to different
+     *                                  ministries.
+     */
+    public function linkInquiry(Inquiry $inquiry, Inquiry $target, User $actor): void
+    {
+        if ($inquiry->id === $target->id) {
+            throw new InvalidArgumentException('An inquiry cannot be linked to itself (FR-INQ-019).');
+        }
+
+        if ($inquiry->ministry_id !== $target->ministry_id) {
+            throw new InvalidArgumentException('Inquiries can only be linked within the same ministry (FR-INQ-019).');
+        }
+
+        DB::transaction(function () use ($inquiry, $target): void {
+            $inquiry->forceFill(['linked_inquiry_id' => $target->id])->save();
+            $target->forceFill(['linked_inquiry_id' => $inquiry->id])->save();
+        });
+    }
+
+    /**
+     * NFR-DATA-002 session task: redacts inquirer_name/email/phone on every
+     * closed inquiry whose closed_at is older than
+     * self::PII_RETENTION_MONTHS, preserving every other field (category,
+     * product_or_sector, resolution_summary, etc.) for aggregate/
+     * statistical use. Scans withoutGlobalScopes() since this is a
+     * platform-wide sweep, not scoped to any one ministry (same reasoning
+     * as AlertService's reference-number generator). Excludes rows already
+     * redacted so a daily-scheduled re-run neither re-touches a row nor
+     * writes a duplicate audit_logs entry for it.
+     *
+     * @return int Count of inquiries redacted by this run.
+     */
+    public function purgeExpiredPii(?Carbon $asOf = null): int
+    {
+        $cutoff = ($asOf ?? now())->copy()->subMonths(self::PII_RETENTION_MONTHS);
+
+        $inquiries = Inquiry::withoutGlobalScopes()
+            ->where('status', InquiryStatus::Closed)
+            ->whereNotNull('closed_at')
+            ->where('closed_at', '<', $cutoff)
+            ->where('inquirer_name', '!=', self::REDACTED_PLACEHOLDER)
+            ->get();
+
+        foreach ($inquiries as $inquiry) {
+            DB::transaction(function () use ($inquiry): void {
+                $before = [
+                    'inquirer_name' => $inquiry->inquirer_name,
+                    'inquirer_email' => $inquiry->inquirer_email,
+                    'inquirer_phone' => $inquiry->inquirer_phone,
+                ];
+
+                $inquiry->forceFill([
+                    'inquirer_name' => self::REDACTED_PLACEHOLDER,
+                    'inquirer_email' => null,
+                    'inquirer_phone' => null,
+                ])->save();
+
+                $this->auditService->record(
+                    actor: null,
+                    action: 'inquiry.pii_purged',
+                    affectedEntityType: Inquiry::class,
+                    affectedEntityId: $inquiry->id,
+                    changes: ['before' => $before],
+                );
+            });
+        }
+
+        return $inquiries->count();
     }
 
     public function addNote(Inquiry $inquiry, string $content, User $actor): InquiryNote

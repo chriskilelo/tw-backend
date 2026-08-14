@@ -1,6 +1,8 @@
 <?php
 
+use App\Console\Commands\ComputeKpiActuals;
 use App\Console\Commands\FlagStaleDirectives;
+use App\Console\Commands\PurgeExpiredPii;
 use App\Console\Commands\SendReportReminders;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
@@ -18,3 +20,12 @@ Schedule::command(SendReportReminders::class)->dailyAt('08:00');
 
 // FR-DIR-010, CLAUDE.md Section 8 Stale Directive Threshold (14 days).
 Schedule::command(FlagStaleDirectives::class)->dailyAt('08:15');
+
+// FR-KPI-006: recomputes every auto-calculated KPI's current-quarter
+// actual daily so it always reflects live data; safe to re-run any number
+// of times (KpiService::recordActual() upserts, see ComputeKpiActuals's
+// own docblock).
+Schedule::command(ComputeKpiActuals::class)->dailyAt('08:30');
+
+// NFR-DATA-002 session task: 12-month inquirer-PII redaction sweep.
+Schedule::command(PurgeExpiredPii::class)->dailyAt('08:45');

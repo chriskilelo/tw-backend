@@ -28,3 +28,13 @@ it('registers directive:flag-stale on the daily 08:15 schedule (FR-DIR-010)', fu
     expect($event)->not->toBeNull();
     expect($event->expression)->toBe('15 8 * * *');
 });
+
+it('registers tw:purge-pii on the daily 08:45 schedule (NFR-DATA-002)', function () {
+    $schedule = app(Schedule::class);
+
+    $event = collect($schedule->events())
+        ->first(fn ($scheduledEvent) => str_contains($scheduledEvent->command ?? '', 'tw:purge-pii'));
+
+    expect($event)->not->toBeNull();
+    expect($event->expression)->toBe('45 8 * * *');
+});

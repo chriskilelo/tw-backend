@@ -36,6 +36,11 @@ class InquiryDetailResource extends JsonResource
             'high_value_justification' => $this->high_value_justification,
             'resolution_summary' => $this->resolution_summary,
             'closed_at' => $this->closed_at,
+            'linked_inquiry' => $this->whenLoaded('linkedInquiry', fn () => $this->linkedInquiry === null ? null : [
+                'id' => $this->linkedInquiry->id,
+                'reference_number' => $this->linkedInquiry->reference_number,
+                'mission' => $this->linkedInquiry->relationLoaded('mission') ? $this->linkedInquiry->mission?->name : null,
+            ]),
             'mission' => $this->whenLoaded('mission', fn () => [
                 'id' => $this->mission->id,
                 'name' => $this->mission->name,
