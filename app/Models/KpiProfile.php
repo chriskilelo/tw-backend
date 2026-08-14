@@ -29,4 +29,9 @@ class KpiProfile extends Model
     {
         return $this->hasMany(KpiProfileDefinition::class);
     }
+
+    public function kpiProfileMissions(): HasMany
+    {
+        return $this->hasMany(KpiProfileMission::class);
+    }
 }

@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api\Sdt;
 
 use App\Http\Controllers\Concerns\ApiResponds;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Api\Kpi\StoreKpiDefinitionRequest;
+use App\Http\Requests\Api\Kpi\UpdateKpiDefinitionRequest;
 use App\Http\Requests\Api\Sdt\StoreAieBudgetCodeRequest;
 use App\Http\Requests\Api\Sdt\StoreAlertFieldRequest;
 use App\Http\Requests\Api\Sdt\StoreDirectiveSettingRequest;
@@ -13,28 +15,34 @@ use App\Http\Requests\Api\Sdt\UpdateAieBudgetCodeRequest;
 use App\Http\Requests\Api\Sdt\UpdateAlertFieldRequest;
 use App\Http\Requests\Api\Sdt\UpdateInquirySettingRequest;
 use App\Http\Requests\Api\Sdt\UpdateReferralOrganisationRequest;
+use App\Http\Resources\KpiDefinitionResource;
+use App\Models\KpiDefinition;
 use App\Models\MasterDataEntry;
 use App\Models\ReferralOrganisation;
+use App\Services\KpiService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 
 /**
- * FR-SDT-019, FR-SDT-020, FR-SDT-023: System-Administrator-only
+ * FR-SDT-019, FR-SDT-020, FR-SDT-021, FR-SDT-023: System-Administrator-only
  * administration screens, reusing the existing master_data_entries table
  * (alert fields, inquiry categories/statuses/event types — CLAUDE.md
- * Section 6/8) and the existing referral_organisations table rather than
- * inventing parallel config tables.
+ * Section 6/8), the existing referral_organisations table, and (Session 32)
+ * the dedicated kpi_definitions table, rather than inventing parallel
+ * config tables.
  *
  * Every action here is deliberately System Administrator only, including
  * GET — distinct from the public /master-data and /referral-organisations
  * endpoints (Session 12/13), which stay open to any authenticated user for
  * dropdown population. See MasterDataEntryPolicy::manage() /
- * ReferralPolicy::manage().
+ * ReferralPolicy::manage() / KpiPolicy::manageDefinitions().
  */
 class ConfigController extends Controller
 {
     use ApiResponds;
+
+    public function __construct(private readonly KpiService $kpiService) {}
 
     private const string ALERT_FIELD_CATEGORY = 'alert_intelligence_type';
 
@@ -134,6 +142,49 @@ class ConfigController extends Controller
         $masterDataEntry->fill($request->validated())->save();
 
         return $this->respondWithData($this->presentEntry($masterDataEntry->fresh()));
+    }
+
+    // --- FR-SDT-021: KPI Definition Configuration ------------------------
+
+    /**
+     * FR-SDT-021: the SDT-scoped KPI library administration screen (FR-KPI-001).
+     * Unlike the master_data_entries-backed screens above, KPI definitions
+     * are their own dedicated table (kpi_definitions) — this wraps the same
+     * App\Services\KpiService::defineKpi() the general-purpose
+     * Api\Kpi\KpiDefinitionController uses, mirroring the Sdt\ReportsController
+     * / Sdt\DirectivesController precedent of an SDT console wrapper around
+     * an existing engine service. KPI Profile management (FR-KPI-002) stays
+     * on its own dedicated /kpi-profiles endpoints (Api\Kpi\KpiProfileController)
+     * rather than being duplicated here.
+     */
+    public function kpiSettings(Request $request): JsonResponse
+    {
+        Gate::authorize('manageDefinitions', KpiDefinition::class);
+
+        $definitions = KpiDefinition::query()
+            ->when($request->filled('ministry_id'), fn ($query) => $query->where('ministry_id', $request->string('ministry_id')))
+            ->orderBy('name')
+            ->get();
+
+        return $this->respondWithData(KpiDefinitionResource::collection($definitions));
+    }
+
+    public function storeKpiSetting(StoreKpiDefinitionRequest $request): JsonResponse
+    {
+        Gate::authorize('manageDefinitions', KpiDefinition::class);
+
+        $definition = $this->kpiService->defineKpi($request->validated(), $request->user());
+
+        return $this->respondWithData(new KpiDefinitionResource($definition), 201);
+    }
+
+    public function updateKpiSetting(UpdateKpiDefinitionRequest $request, KpiDefinition $kpiDefinition): JsonResponse
+    {
+        Gate::authorize('manageDefinitions', KpiDefinition::class);
+
+        $kpiDefinition->fill($request->validated())->save();
+
+        return $this->respondWithData(new KpiDefinitionResource($kpiDefinition->fresh()));
     }
 
     // --- FR-SDT-010: Directive Type Configuration -----------------------
