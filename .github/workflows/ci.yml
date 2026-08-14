@@ -28,3 +28,60 @@ jobs:
 
       - name: Run test suite
         run: php artisan test --compact
+
+  performance:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Composer dependencies
+        run: composer install --prefer-dist --no-interaction
+
+      - name: Copy environment file
+        run: cp .env.example .env
+
+      - name: Generate application key
+        run: php artisan key:generate
+
+      - name: Run database migrations
+        run: php artisan migrate --force
+
+      - name: Seed k6 load-test fixture accounts
+        run: php artisan db:seed --class=LoadTestAccountSeeder --force --no-interaction
+
+      - name: Install k6
+        run: |
+          if ! command -v k6 >/dev/null; then
+            curl -s https://dl.k6.io/key.gpg | sudo gpg --batch --yes --dearmor -o /usr/share/keyrings/k6-archive-keyring.gpg
+            echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+            sudo apt-get update -qq
+            sudo apt-get install -y k6
+          fi
+
+      - name: Start application server
+        run: nohup php artisan serve --host=127.0.0.1 --port=8000 > server.log 2>&1 &
+
+      - name: Wait for application server
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:8000/up && exit 0
+            sleep 1
+          done
+          echo "Application server did not become ready in time" >&2
+          exit 1
+
+      # NFR-PERF-001/002 (TDD-ADR-001's confirmed k6 tool). Each script's own
+      # thresholds (p95 < 3000ms) fail the step — and therefore the build —
+      # on violation, so no separate pass/fail parsing is needed here.
+      - name: k6 - auth load test
+        run: k6 run tests/load/auth.js
+
+      - name: k6 - alert list load test
+        run: k6 run tests/load/alert-list.js
+
+      - name: k6 - report form load test
+        run: k6 run tests/load/report-form.js
