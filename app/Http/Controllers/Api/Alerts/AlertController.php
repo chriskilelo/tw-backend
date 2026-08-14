@@ -17,6 +17,8 @@ use App\Services\AlertService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 /**
  * API-001 Section 6 (Intelligence Alert Engine). Thin controller: every
@@ -93,7 +95,14 @@ class AlertController extends Controller
         Gate::authorize('uploadAttachment', $alert);
 
         $file = $request->file('file');
-        $path = $file->store("alerts/{$alert->id}", 'uploads');
+
+        // NFR-SEC-004 (Session 38): stored under a server-generated UUID
+        // filename, never the client-supplied original name — file_path is
+        // never derived from user input, so a crafted original_filename
+        // (path traversal, a disguised double extension, etc.) can't affect
+        // where the file lands on disk.
+        $filename = Str::uuid()->toString().'.'.strtolower($file->getClientOriginalExtension());
+        $path = $file->storeAs("alerts/{$alert->id}", $filename, 'uploads');
 
         $attachment = AlertAttachment::create([
             'alert_id' => $alert->id,
@@ -111,6 +120,30 @@ class AlertController extends Controller
             'mime_type' => $attachment->mime_type,
             'created_at' => $attachment->created_at,
         ], 201);
+    }
+
+    /**
+     * NFR-SEC-004 (Session 38): the only way to reach an attachment's bytes.
+     * Gated the same as viewing the parent alert (AlertPolicy::view() is
+     * open to any ministry-scoped user, ministry isolation already enforced
+     * by Alert's global scope); the attachment must belong to the alert in
+     * the URL, same IDOR-guard precedent as notification ownership and
+     * report data rows. Returns a 15-minute signed Storage::temporaryUrl(),
+     * never the raw file — nothing under the 'uploads' disk is reachable
+     * from public/.
+     */
+    public function downloadAttachment(Alert $alert, AlertAttachment $attachment): JsonResponse
+    {
+        Gate::authorize('view', $alert);
+
+        abort_unless($attachment->alert_id === $alert->id, 404);
+
+        $expiresAt = now()->addMinutes(15);
+
+        return $this->respondWithData([
+            'url' => Storage::disk('uploads')->temporaryUrl($attachment->file_path, $expiresAt),
+            'expires_at' => $expiresAt,
+        ]);
     }
 
     public function delegate(DelegateAlertRequest $request, Alert $alert): JsonResponse

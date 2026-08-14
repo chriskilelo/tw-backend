@@ -15,6 +15,8 @@ use App\Services\ReferralService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 /**
  * API-001 (Referral Register Engine), FR-REF-001 to 006. Thin controller:
@@ -68,7 +70,12 @@ class ReferralController extends Controller
         Gate::authorize('uploadAttachment', $referralEntry);
 
         $file = $request->file('file');
-        $path = $file->store("referrals/{$referralEntry->id}", 'uploads');
+
+        // NFR-SEC-004 (Session 38): UUID filename, never the client
+        // original — see AlertController::storeAttachment()'s identical
+        // reasoning.
+        $filename = Str::uuid()->toString().'.'.strtolower($file->getClientOriginalExtension());
+        $path = $file->storeAs("referrals/{$referralEntry->id}", $filename, 'uploads');
 
         $attachment = ReferralAttachment::create([
             'referral_entry_id' => $referralEntry->id,
@@ -86,6 +93,26 @@ class ReferralController extends Controller
             'mime_type' => $attachment->mime_type,
             'created_at' => $attachment->created_at,
         ], 201);
+    }
+
+    /**
+     * NFR-SEC-004 (Session 38): see
+     * AlertController::downloadAttachment()'s identical reasoning — gated
+     * the same as viewing the parent referral entry
+     * (ReferralPolicy::view() is open to any ministry-scoped user).
+     */
+    public function downloadAttachment(ReferralEntry $referralEntry, ReferralAttachment $attachment): JsonResponse
+    {
+        Gate::authorize('view', $referralEntry);
+
+        abort_unless($attachment->referral_entry_id === $referralEntry->id, 404);
+
+        $expiresAt = now()->addMinutes(15);
+
+        return $this->respondWithData([
+            'url' => Storage::disk('uploads')->temporaryUrl($attachment->file_path, $expiresAt),
+            'expires_at' => $expiresAt,
+        ]);
     }
 
     public function summary(Request $request): JsonResponse
