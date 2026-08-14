@@ -20,6 +20,13 @@ use Symfony\Component\HttpFoundation\Response;
  * scoping entirely: System Administrator (sees everything) and the four
  * structurally read-only mission-governance roles (oversee an entire
  * mission or the whole platform, not one ministry).
+ *
+ * FR-SDT-018: also enforces the HRM&D Officer's engine-scoped restriction
+ * as a blanket, defence-in-depth check for every ministry-scoped route —
+ * BasePolicy::before() (Session 33) already denies HRM&D Officer on any
+ * policy-gated action, but a couple of routes this middleware also guards
+ * (e.g. /search) have no dedicated policy at all, so this second check
+ * covers those too, not just the policy-gated ones.
  */
 class MinistryScope
 {
@@ -27,9 +34,18 @@ class MinistryScope
     {
         $user = Auth::user();
 
+        if ($user !== null && $user->role?->name === 'HRM&D Officer' && ! $this->isKpiScopedPath($request)) {
+            abort(403, 'HRM&D Officer access is limited to the KPI Framework Engine (FR-SDT-018).');
+        }
+
         app()->instance('current_ministry_id', $this->resolveMinistryId($user));
 
         return $next($request);
+    }
+
+    private function isKpiScopedPath(Request $request): bool
+    {
+        return $request->is('api/v1/kpi-*') || $request->is('api/v1/sdt/hrmd-dashboard*');
     }
 
     protected function resolveMinistryId(?User $user): ?string

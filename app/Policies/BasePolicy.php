@@ -10,6 +10,14 @@ use App\Models\User;
  * read-only: the before() hook denies any non-view ability for them before
  * a concrete policy method ever runs, so the restriction cannot be bypassed
  * by a policy that forgets to check the role itself.
+ *
+ * FR-SDT-018: the HRM&D Officer role is subject to a second, stricter
+ * before() check — unlike the four read-only roles above (still allowed
+ * every view/viewAny ability, on every policy), HRM&D's restriction is
+ * engine-scoped, not action-scoped: FR-SDT-016 gives them "no access to
+ * any other Layer 2 module," including read access. So this check runs
+ * first and denies ALL abilities, view included, on every policy except
+ * the one that overrides isKpiScoped() to return true (KpiPolicy).
  */
 abstract class BasePolicy
 {
@@ -35,6 +43,10 @@ abstract class BasePolicy
 
     public function before(User $user, string $ability): ?bool
     {
+        if ($user->role?->name === 'HRM&D Officer' && ! $this->isKpiScoped()) {
+            return false;
+        }
+
         if (in_array($ability, static::VIEW_ABILITIES, true)) {
             return null;
         }
@@ -44,5 +56,14 @@ abstract class BasePolicy
         }
 
         return null;
+    }
+
+    /**
+     * Overridden by KpiPolicy — the only policy an HRM&D Officer may ever
+     * use (FR-SDT-018).
+     */
+    protected function isKpiScoped(): bool
+    {
+        return false;
     }
 }
