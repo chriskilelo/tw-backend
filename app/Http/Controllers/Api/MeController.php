@@ -4,10 +4,13 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Concerns\ApiResponds;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Api\StoreAvatarRequest;
 use App\Http\Requests\Api\UpdatePreferencesRequest;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class MeController extends Controller
 {
@@ -15,7 +18,11 @@ class MeController extends Controller
 
     public function show(Request $request): JsonResponse
     {
-        return $this->respondWithData($this->presentUser($request->user()));
+        /** @var User $user */
+        $user = $request->user();
+        $user->loadMissing(['mission', 'ministry']);
+
+        return $this->respondWithData($this->presentUser($user));
     }
 
     public function updatePreferences(UpdatePreferencesRequest $request): JsonResponse
@@ -28,7 +35,48 @@ class MeController extends Controller
             'email_notification_preferences',
         ]))->save();
 
+        $user->loadMissing(['mission', 'ministry']);
+
         return $this->respondWithData($this->presentUser($user));
+    }
+
+    /**
+     * FR-AUTH-019: replaces any existing photo — the old file is deleted from disk first
+     * so a user who changes their photo repeatedly never leaves orphaned files behind
+     * (BR-024: removal/replacement never touches any other record, only this file).
+     */
+    public function uploadAvatar(StoreAvatarRequest $request): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+        $file = $request->file('file');
+
+        if ($user->avatar_path) {
+            Storage::disk('uploads')->delete($user->avatar_path);
+        }
+
+        // NFR-SEC-004 pattern (Session 38): UUID filename, never the client's original
+        // name — see StoreAlertAttachmentRequest's identical reasoning.
+        $filename = Str::uuid()->toString().'.'.strtolower($file->getClientOriginalExtension());
+        $path = $file->storeAs("avatars/{$user->id}", $filename, 'uploads');
+
+        $user->forceFill(['avatar_path' => $path])->save();
+        $user->loadMissing(['mission', 'ministry']);
+
+        return $this->respondWithData($this->presentUser($user));
+    }
+
+    public function deleteAvatar(Request $request): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+
+        if ($user->avatar_path) {
+            Storage::disk('uploads')->delete($user->avatar_path);
+            $user->forceFill(['avatar_path' => null])->save();
+        }
+
+        return response()->json(null, 204);
     }
 
     /**
@@ -59,6 +107,27 @@ class MeController extends Controller
                 'status' => $user->status,
                 'language_preference' => $user->language_preference,
                 'email_notification_preferences' => $user->email_notification_preferences,
+                // FR-AUTH-019: signed, time-limited URL (NFR-SEC-004 pattern, same
+                // mechanism as AlertController::downloadAttachment()) — never a
+                // permanent public path. Null when no photo has been uploaded; the
+                // frontend falls back to an initials-based avatar (BR-024, AC2).
+                'avatar_url' => $user->avatar_path
+                    ? Storage::disk('uploads')->temporaryUrl($user->avatar_path, now()->addMinutes(15))
+                    : null,
+                // Additive for ProfilePage (My Profile): GET /me previously only exposed the
+                // raw FK ids, so the frontend had no way to show "London Mission" / "State
+                // Department for Trade" without a second lookup. Nullable since System
+                // Administrator / MFA-scoped roles carry neither (CLAUDE.md Section 6).
+                'mission' => $user->relationLoaded('mission') && $user->mission
+                    ? [
+                        'id' => $user->mission->id,
+                        'name' => $user->mission->name,
+                        'host_country' => $user->mission->host_country,
+                    ]
+                    : null,
+                'ministry' => $user->relationLoaded('ministry') && $user->ministry
+                    ? ['id' => $user->ministry->id, 'name' => $user->ministry->name]
+                    : null,
             ],
             'role' => $user->role ? [
                 'id' => $user->role->id,

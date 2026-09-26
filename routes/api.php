@@ -61,6 +61,8 @@ Route::prefix('v1')->group(function (): void {
         Route::post('/logout', LogoutController::class);
         Route::get('/me', [MeController::class, 'show']);
         Route::patch('/me/preferences', [MeController::class, 'updatePreferences']);
+        Route::post('/me/avatar', [MeController::class, 'uploadAvatar']);
+        Route::delete('/me/avatar', [MeController::class, 'deleteAvatar']);
 
         Route::prefix('users')->group(function (): void {
             Route::get('/', [UserController::class, 'index']);
