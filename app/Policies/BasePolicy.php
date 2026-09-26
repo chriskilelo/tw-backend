@@ -3,6 +3,7 @@
 namespace App\Policies;
 
 use App\Models\User;
+use App\Services\AdministrationService;
 
 /**
  * Base class for every engine policy (CLAUDE.md Section 4, Rule 2 / BR-020,
@@ -18,6 +19,12 @@ use App\Models\User;
  * any other Layer 2 module," including read access. So this check runs
  * first and denies ALL abilities, view included, on every policy except
  * the one that overrides isKpiScoped() to return true (KpiPolicy).
+ *
+ * ADR-006 / BR-025: the Ministry Administrator is denied every ability —
+ * view included — unless the concrete policy lists it in
+ * MINISTRY_ADMINISTRATION_ABILITIES. The allowlist is per ability, not per
+ * policy, because several policies (ReferralPolicy, ReportPolicy, KpiPolicy)
+ * govern both operational records and department configuration.
  */
 abstract class BasePolicy
 {
@@ -41,8 +48,20 @@ abstract class BasePolicy
      */
     protected const array VIEW_ABILITIES = ['view', 'viewAny'];
 
+    /**
+     * Administrative abilities a Ministry Administrator may use on this
+     * policy; empty by default, so every operational policy denies it.
+     *
+     * @var array<int, string>
+     */
+    protected const array MINISTRY_ADMINISTRATION_ABILITIES = [];
+
     public function before(User $user, string $ability): ?bool
     {
+        if (AdministrationService::isMinistryAdministrator($user) && ! in_array($ability, static::MINISTRY_ADMINISTRATION_ABILITIES, true)) {
+            return false;
+        }
+
         if ($user->role?->name === 'HRM&D Officer' && ! $this->isKpiScoped()) {
             return false;
         }

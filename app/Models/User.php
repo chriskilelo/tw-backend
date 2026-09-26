@@ -20,7 +20,7 @@ use Illuminate\Notifications\Notifiable;
 #[Fillable([
     'full_name', 'email', 'password', 'role_id', 'mission_id', 'ministry_id',
     'status', 'failed_login_attempts', 'last_login_at', 'language_preference',
-    'email_notification_preferences', 'acting_ps_original_role_id',
+    'email_notification_preferences', 'acting_ps_original_role_id', 'home_ministry_id',
 ])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
@@ -59,6 +59,15 @@ class User extends Authenticatable
     public function ministry(): BelongsTo
     {
         return $this->belongsTo(Ministry::class);
+    }
+
+    /**
+     * ADR-006: display-only home department of a System Administrator. Never
+     * used for scoping (see the add_home_ministry_id_to_users_table migration).
+     */
+    public function homeMinistry(): BelongsTo
+    {
+        return $this->belongsTo(Ministry::class, 'home_ministry_id');
     }
 
     public function auditLogs(): HasMany

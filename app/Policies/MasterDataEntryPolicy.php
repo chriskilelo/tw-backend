@@ -4,6 +4,7 @@ namespace App\Policies;
 
 use App\Models\MasterDataEntry;
 use App\Models\User;
+use App\Services\AdministrationService;
 
 /**
  * FR-MDATA-001, FR-MDATA-002 (API-001 Section 3): GET is open to any
@@ -12,6 +13,12 @@ use App\Models\User;
  */
 class MasterDataEntryPolicy extends BasePolicy
 {
+    /**
+     * ADR-006: a Ministry Administrator manages its own department's lists;
+     * the controllers pin every query and write to that department.
+     */
+    protected const array MINISTRY_ADMINISTRATION_ABILITIES = ['viewAny', 'create', 'update', 'manage'];
+
     public function viewAny(User $user): bool
     {
         return true;
@@ -19,12 +26,12 @@ class MasterDataEntryPolicy extends BasePolicy
 
     public function create(User $user): bool
     {
-        return $this->isSystemAdministrator($user);
+        return $this->isAdministrator($user);
     }
 
     public function update(User $user, MasterDataEntry $masterDataEntry): bool
     {
-        return $this->isSystemAdministrator($user);
+        return AdministrationService::canAdministerMinistry($user, $masterDataEntry->ministry_id);
     }
 
     /**
@@ -36,11 +43,11 @@ class MasterDataEntryPolicy extends BasePolicy
      */
     public function manage(User $user): bool
     {
-        return $this->isSystemAdministrator($user);
+        return $this->isAdministrator($user);
     }
 
-    private function isSystemAdministrator(User $user): bool
+    private function isAdministrator(User $user): bool
     {
-        return $user->role?->name === 'System Administrator';
+        return AdministrationService::isSystemAdministrator($user) || AdministrationService::isMinistryAdministrator($user);
     }
 }

@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Models\Alert;
+use App\Models\ApprovalRequest;
 use App\Models\ContentItem;
 use App\Models\Directive;
 use App\Models\Inquiry;
@@ -10,7 +11,9 @@ use App\Models\KpiActual;
 use App\Models\KpiDefinition;
 use App\Models\KpiProfile;
 use App\Models\KpiTarget;
+use App\Models\MasterDataEntry;
 use App\Models\Mission;
+use App\Models\MissionMinistryLink;
 use App\Models\PeriodicReport;
 use App\Models\ReferralEntry;
 use App\Models\ReferralOrganisation;
@@ -123,6 +126,14 @@ class AppServiceProvider extends ServiceProvider
             KpiProfile::class,
             KpiTarget::class,
             KpiActual::class,
+            // ADR-006 / FR-AUDIT-006: department configuration and PS approval
+            // changes, previously unaudited, now that a Ministry Administrator
+            // can make them and must see them in its own audit view.
+            MasterDataEntry::class,
+            ReferralOrganisation::class,
+            ReportTemplateSection::class,
+            MissionMinistryLink::class,
+            ApprovalRequest::class,
         ] as $observedModel) {
             $observedModel::observe(ModelObserver::class);
         }

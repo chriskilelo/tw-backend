@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\AlertStatus;
+use App\Enums\UserStatus;
 use App\Models\Alert;
 use App\Models\AlertFeedback;
 use App\Models\AlertVersion;
@@ -18,7 +19,10 @@ use InvalidArgumentException;
  */
 class AlertService
 {
-    public function __construct(private readonly NotificationService $notificationService) {}
+    public function __construct(
+        private readonly NotificationService $notificationService,
+        private readonly AuditService $auditService,
+    ) {}
 
     /**
      * @param  array<string, mixed>  $data  Already validated by StoreAlertRequest
@@ -142,18 +146,50 @@ class AlertService
     /**
      * FR-SDT-003, FR-ALERT-008: eligibility is governed by permission, not
      * job title, so this does not restrict $deputy to a specific role — it
-     * only requires the deputy to belong to the PS's own ministry.
+     * only requires the deputy to be an active account in a department.
+     * ADR-006: the activator may be the department's PS, Acting PS or
+     * Ministry Administrator (all pinned to their own department), or a
+     * System Administrator (any department).
      */
-    public function activateDesignatedDeputy(User $ps, User $deputy): void
+    public function activateDesignatedDeputy(User $activator, User $deputy): void
     {
-        if ($ps->ministry_id === null || $deputy->ministry_id !== $ps->ministry_id) {
-            throw new InvalidArgumentException('The designated deputy must belong to the same ministry as the Principal Secretary.');
+        if ($deputy->ministry_id === null || $deputy->status === UserStatus::Deactivated) {
+            throw new InvalidArgumentException('The designated deputy must be an active account in a department.');
         }
 
-        Ministry::query()->whereKey($ps->ministry_id)->update([
+        if (! AdministrationService::isSystemAdministrator($activator) && $deputy->ministry_id !== $activator->ministry_id) {
+            throw new InvalidArgumentException('The designated deputy must belong to your own department.');
+        }
+
+        Ministry::query()->whereKey($deputy->ministry_id)->update([
             'designated_deputy_user_id' => $deputy->id,
             'designated_deputy_active' => true,
         ]);
+
+        $this->auditService->record($activator, 'designated_deputy.activated', 'ministry', $deputy->ministry_id, ['deputy_user_id' => $deputy->id], null, $deputy->ministry_id);
+    }
+
+    /**
+     * FR-SDT-003: switches the fallback off; alerts route to the PS again.
+     */
+    public function deactivateDesignatedDeputy(User $activator, Ministry $ministry): void
+    {
+        if (! AdministrationService::isSystemAdministrator($activator) && $ministry->id !== $activator->ministry_id) {
+            throw new InvalidArgumentException('You can only manage the Designated Deputy of your own department.');
+        }
+
+        if (! $ministry->designated_deputy_active) {
+            throw new InvalidArgumentException('No Designated Deputy is currently active for this department.');
+        }
+
+        $previousDeputyId = $ministry->designated_deputy_user_id;
+
+        $ministry->forceFill([
+            'designated_deputy_user_id' => null,
+            'designated_deputy_active' => false,
+        ])->save();
+
+        $this->auditService->record($activator, 'designated_deputy.deactivated', 'ministry', $ministry->id, ['deputy_user_id' => $previousDeputyId], null, $ministry->id);
     }
 
     /**

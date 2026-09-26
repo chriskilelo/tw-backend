@@ -119,8 +119,10 @@ class SdtService
             throw new InvalidArgumentException('The Acting PS candidate must belong to a ministry.');
         }
 
-        if ($activator->role?->name === 'Ministry PS' && $activator->ministry_id !== $target->ministry_id) {
-            throw new InvalidArgumentException('The Acting PS candidate must belong to the same ministry as the Principal Secretary.');
+        // ADR-006: every activator except a System Administrator is pinned to
+        // its own department (the PS, and now the Ministry Administrator).
+        if (! AdministrationService::isSystemAdministrator($activator) && $activator->ministry_id !== $target->ministry_id) {
+            throw new InvalidArgumentException('The Acting PS candidate must belong to your own department.');
         }
 
         if (in_array($target->role?->name, ['Ministry PS', 'Acting PS'], true)) {
@@ -153,6 +155,8 @@ class SdtService
             'ministry',
             $ministry->id,
             ['assumed_user_id' => $target->id],
+            null,
+            $ministry->id,
         );
     }
 
@@ -162,6 +166,10 @@ class SdtService
      */
     public function deactivateActingPs(User $activator, Ministry $ministry): void
     {
+        if (! AdministrationService::isSystemAdministrator($activator) && $activator->ministry_id !== $ministry->id) {
+            throw new InvalidArgumentException('You can only manage the Acting PS of your own department.');
+        }
+
         if (! $ministry->acting_ps_active || $ministry->acting_ps_user_id === null) {
             throw new InvalidArgumentException('No Acting PS assignment is currently active for this ministry.');
         }
@@ -186,6 +194,8 @@ class SdtService
             'ministry',
             $ministry->id,
             ['reverted_user_id' => $target->id],
+            null,
+            $ministry->id,
         );
     }
 

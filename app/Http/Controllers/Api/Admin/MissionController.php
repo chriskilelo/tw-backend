@@ -9,6 +9,7 @@ use App\Http\Requests\Api\Admin\UpdateMissionRequest;
 use App\Http\Resources\MissionResource;
 use App\Models\Mission;
 use App\Models\MissionMinistryLink;
+use App\Services\AdministrationService;
 use App\Services\AuditService;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
@@ -31,10 +32,16 @@ class MissionController extends Controller
     {
         Gate::authorize('viewAny', Mission::class);
 
-        $isSystemAdministrator = $request->user()?->role?->name === 'System Administrator';
+        $actor = $request->user();
+        $isAdministrator = AdministrationService::isSystemAdministrator($actor) || AdministrationService::isMinistryAdministrator($actor);
+        // ADR-006: a Ministry Administrator sees only its own department's postings.
+        $linksMinistryId = AdministrationService::isMinistryAdministrator($actor) ? $actor->ministry_id : null;
 
         $missions = Mission::query()
-            ->when($isSystemAdministrator, fn ($query) => $query->with('missionMinistryLinks'))
+            ->when($isAdministrator, fn ($query) => $query->with(['missionMinistryLinks' => fn ($links) => $links
+                ->when($linksMinistryId !== null, fn ($query) => $query->where('ministry_id', $linksMinistryId))
+                ->with('activeAttache:id,full_name'),
+            ]))
             ->orderBy('name')
             ->get();
 

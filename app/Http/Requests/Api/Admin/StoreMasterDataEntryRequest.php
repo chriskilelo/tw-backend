@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Api\Admin;
 
+use App\Http\Requests\Api\Concerns\PinsDepartmentForMinistryAdministrator;
 use App\Http\Requests\Api\FormRequest;
 
 /**
@@ -11,6 +12,8 @@ use App\Http\Requests\Api\FormRequest;
  */
 class StoreMasterDataEntryRequest extends FormRequest
 {
+    use PinsDepartmentForMinistryAdministrator;
+
     public function authorize(): bool
     {
         return true;
@@ -22,7 +25,7 @@ class StoreMasterDataEntryRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'ministry_id' => ['nullable', 'uuid', 'exists:ministries,id'],
+            'ministry_id' => $this->departmentRules(required: false),
             'category' => ['required', 'string', 'max:100'],
             'value' => ['required', 'string', 'max:255'],
             'display_order' => ['sometimes', 'integer', 'min:0'],

@@ -128,12 +128,18 @@ class MeController extends Controller
                 'ministry' => $user->relationLoaded('ministry') && $user->ministry
                     ? ['id' => $user->ministry->id, 'name' => $user->ministry->name]
                     : null,
+                // ADR-006: display-only home department of a System Administrator.
+                'home_ministry' => $user->home_ministry_id !== null && $user->homeMinistry
+                    ? ['id' => $user->homeMinistry->id, 'name' => $user->homeMinistry->name]
+                    : null,
             ],
             'role' => $user->role ? [
                 'id' => $user->role->id,
                 'name' => $user->role->name,
                 'layer' => $user->role->layer,
                 'scope' => $user->role->scope,
+                // FR-AUTH-025: cosmetic title only, never used for authorisation.
+                'display_title' => $user->role->display_title,
             ] : null,
             'permissions' => $user->role
                 ? $user->role->permissions()->pluck('permission_key')->all()

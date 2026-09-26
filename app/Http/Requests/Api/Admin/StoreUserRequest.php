@@ -4,6 +4,8 @@ namespace App\Http\Requests\Api\Admin;
 
 use App\Http\Requests\Api\FormRequest;
 use App\Models\Role;
+use App\Models\User;
+use App\Services\AdministrationService;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
 
@@ -13,6 +15,12 @@ use Illuminate\Validation\Validator;
  * Mission, Deputy Head of Mission — the mission-scoped Layer 1/2 roles per
  * CLAUDE.md Section 6 users table) or a ministry affiliation (every other
  * role except the platform-scoped roles, which carry neither).
+ *
+ * ADR-006 / FR-AUTH-021: a Ministry Administrator may only assign the roles
+ * in AdministrationService::MINISTRY_ADMIN_ASSIGNABLE_ROLES, always within
+ * its own department (the controller pins ministry_id); a new Principal
+ * Secretary goes through an approval request instead (BR-027).
+ * home_ministry_id is a display-only affiliation for System Administrators.
  */
 class StoreUserRequest extends FormRequest
 {
@@ -42,6 +50,7 @@ class StoreUserRequest extends FormRequest
             'role_id' => ['required', 'uuid', Rule::exists('roles', 'id')],
             'mission_id' => ['nullable', 'uuid', Rule::exists('missions', 'id')],
             'ministry_id' => ['nullable', 'uuid', Rule::exists('ministries', 'id')],
+            'home_ministry_id' => ['nullable', 'uuid', Rule::exists('ministries', 'id')],
         ];
     }
 
@@ -62,6 +71,11 @@ class StoreUserRequest extends FormRequest
                     return;
                 }
 
+                $actor = $this->user();
+                $isMinistryAdministrator = AdministrationService::isMinistryAdministrator($actor);
+
+                self::validateAdministrativeScope($validator, $actor, $role, $this->input('ministry_id'), $this->input('home_ministry_id'));
+
                 if (in_array($role->name, self::MISSION_SCOPED_ROLES, true) && ! $this->filled('mission_id')) {
                     $validator->errors()->add('mission_id', 'A mission assignment is required for this role.');
                 }
@@ -69,10 +83,34 @@ class StoreUserRequest extends FormRequest
                 if (
                     ! in_array($role->name, [...self::MISSION_SCOPED_ROLES, ...self::PLATFORM_SCOPED_ROLES], true)
                     && ! $this->filled('ministry_id')
+                    && ! $isMinistryAdministrator
                 ) {
                     $validator->errors()->add('ministry_id', 'A ministry or department affiliation is required for this role.');
                 }
             },
         ];
+    }
+
+    /**
+     * Shared with UpdateUserRequest: the tier-dependent checks on which role
+     * and department an account may be given.
+     */
+    public static function validateAdministrativeScope(Validator $validator, ?User $actor, Role $role, ?string $ministryId, ?string $homeMinistryId): void
+    {
+        if (AdministrationService::isMinistryAdministrator($actor)) {
+            if ($role->name === AdministrationService::MINISTRY_PS) {
+                $validator->errors()->add('role_id', 'Appointing a Principal Secretary requires System Administrator approval. Submit a PS appointment or promotion request instead (BR-027).');
+            } elseif (! AdministrationService::canAssignRole($actor, $role)) {
+                $validator->errors()->add('role_id', 'A Ministry Administrator cannot assign this role.');
+            }
+
+            if ($ministryId !== null && $ministryId !== $actor->ministry_id) {
+                $validator->errors()->add('ministry_id', 'A Ministry Administrator can only manage accounts in its own department.');
+            }
+        }
+
+        if ($homeMinistryId !== null && $role->name !== AdministrationService::SYSTEM_ADMINISTRATOR) {
+            $validator->errors()->add('home_ministry_id', 'A home department can only be recorded for a System Administrator.');
+        }
     }
 }

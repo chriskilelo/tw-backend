@@ -5,6 +5,7 @@ namespace App\Policies;
 use App\Enums\PeriodicReportStatus;
 use App\Models\PeriodicReport;
 use App\Models\User;
+use App\Services\AdministrationService;
 
 /**
  * FR-RPT-* role requirements (API-001, CLAUDE.md Section 11). BasePolicy::before()
@@ -25,6 +26,12 @@ use App\Models\User;
  */
 class ReportPolicy extends BasePolicy
 {
+    /**
+     * ADR-006: template versions are department configuration; report
+     * instances stay denied to a Ministry Administrator (BR-025).
+     */
+    protected const array MINISTRY_ADMINISTRATION_ABILITIES = ['manageTemplate'];
+
     public function viewAny(User $user): bool
     {
         return true;
@@ -87,7 +94,7 @@ class ReportPolicy extends BasePolicy
      */
     public function manageTemplate(User $user): bool
     {
-        return $user->role?->name === 'System Administrator';
+        return AdministrationService::isSystemAdministrator($user) || AdministrationService::isMinistryAdministrator($user);
     }
 
     private function isEditableByOwningAttache(User $user, PeriodicReport $report): bool

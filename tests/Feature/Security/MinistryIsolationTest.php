@@ -3,6 +3,7 @@
 use App\Models\Alert;
 use App\Models\Directive;
 use App\Models\Inquiry;
+use App\Models\KpiDefinition;
 use App\Models\Ministry;
 use App\Models\Mission;
 use App\Models\PeriodicReport;
@@ -190,4 +191,82 @@ it('never surfaces another ministry\'s alerts or inquiries through full-text sea
 
     $response->assertOk();
     expect($response->json('data'))->toHaveCount(0);
+});
+
+// --- ADR-006 / BR-025: Ministry Administrator isolation and operational fence ---
+
+function ministryIsolationAdministrator(Ministry $ministry): User
+{
+    $role = Role::query()->firstOrCreate(['name' => 'Ministry Administrator'], ['layer' => '1', 'scope' => 'ministry']);
+
+    return User::factory()->create(['role_id' => $role->id, 'ministry_id' => $ministry->id]);
+}
+
+it('denies a Ministry Administrator every operational endpoint, reads included (TC-NFR-SEC-006-MA-A)', function (string $method, string $uri) {
+    $administrator = ministryIsolationAdministrator(Ministry::factory()->create());
+
+    // 403 from the fence; /mission-activity already answers 404 to any account
+    // without a mission assignment before authorisation runs — still a denial.
+    expect($this->actingAs($administrator)->json($method, $uri)->status())->toBeIn([403, 404]);
+})->with([
+    'alerts list' => ['GET', '/api/v1/alerts'],
+    'alert submit' => ['POST', '/api/v1/alerts'],
+    'inquiries list' => ['GET', '/api/v1/inquiries'],
+    'directives list' => ['GET', '/api/v1/directives'],
+    'periodic reports list' => ['GET', '/api/v1/periodic-reports'],
+    'kpi actuals' => ['GET', '/api/v1/kpi-actuals'],
+    'kpi comparison' => ['GET', '/api/v1/kpi-comparison'],
+    'kpi targets' => ['POST', '/api/v1/kpi-targets'],
+    'search' => ['GET', '/api/v1/search?q=avocado'],
+    'PS dashboard' => ['GET', '/api/v1/sdt/dashboard'],
+    'report compliance' => ['GET', '/api/v1/sdt/reports/compliance'],
+    'referral summary' => ['GET', '/api/v1/referrals/summary'],
+    'mission activity' => ['GET', '/api/v1/mission-activity'],
+]);
+
+it('reaches its own department\'s administration endpoints (TC-NFR-SEC-006-MA-B)', function (string $uri) {
+    $administrator = ministryIsolationAdministrator(Ministry::factory()->create());
+
+    $this->actingAs($administrator)->getJson($uri)->assertOk();
+})->with([
+    '/api/v1/users',
+    '/api/v1/report-templates',
+    '/api/v1/kpi-definitions',
+    '/api/v1/kpi-profiles',
+    '/api/v1/sdt/config/alert-fields',
+    '/api/v1/sdt/config/referral-organisations',
+    '/api/v1/master-data',
+    '/api/v1/audit-logs',
+    '/api/v1/approval-requests',
+    '/api/v1/ministries',
+    '/api/v1/missions',
+]);
+
+it('is confined to its own department by the global scope, never bypassing it (TC-NFR-SEC-006-MA-C)', function () {
+    $ownMinistry = Ministry::factory()->create();
+    $otherMinistry = Ministry::factory()->create();
+    $administrator = ministryIsolationAdministrator($ownMinistry);
+
+    Alert::factory()->create(['ministry_id' => $ownMinistry->id]);
+    Alert::factory()->create(['ministry_id' => $otherMinistry->id]);
+
+    $this->actingAs($administrator);
+
+    expect(Alert::all())->toHaveCount(1);
+});
+
+it('never sees or edits another department\'s configuration (TC-NFR-SEC-006-MA-D)', function () {
+    $ownMinistry = Ministry::factory()->create();
+    $otherMinistry = Ministry::factory()->create();
+    $administrator = ministryIsolationAdministrator($ownMinistry);
+    $ownKpi = KpiDefinition::factory()->create(['ministry_id' => $ownMinistry->id]);
+    $foreignKpi = KpiDefinition::factory()->create(['ministry_id' => $otherMinistry->id]);
+
+    $ids = collect($this->actingAs($administrator)->getJson('/api/v1/sdt/config/kpi-settings?ministry_id='.$otherMinistry->id)->assertOk()->json('data'))->pluck('id');
+
+    expect($ids)->toContain($ownKpi->id)->not->toContain($foreignKpi->id);
+    $this->actingAs($administrator)->patchJson("/api/v1/sdt/config/kpi-settings/{$foreignKpi->id}", ['name' => 'Hijacked'])->assertNotFound();
+    $this->actingAs($administrator)->patchJson("/api/v1/kpi-definitions/{$foreignKpi->id}", ['name' => 'Hijacked'])->assertNotFound();
+
+    expect($foreignKpi->fresh()->name)->not->toBe('Hijacked');
 });

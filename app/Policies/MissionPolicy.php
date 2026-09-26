@@ -4,6 +4,7 @@ namespace App\Policies;
 
 use App\Models\Mission;
 use App\Models\User;
+use App\Services\AdministrationService;
 
 /**
  * GET /missions is open to any authenticated user (mission dropdowns are
@@ -32,6 +33,13 @@ class MissionPolicy extends BasePolicy
         'view', 'viewAny', 'viewOwnActivity', 'viewMfaAwareness', 'viewMissionDrillDown', 'viewNationalOverview',
     ];
 
+    /**
+     * ADR-006: a Ministry Administrator may read the shared mission registry
+     * and manage its own department's attache postings, but never create,
+     * edit or deactivate a mission (missions are shared by every department).
+     */
+    protected const array MINISTRY_ADMINISTRATION_ABILITIES = ['viewAny', 'view', 'managePostings'];
+
     private const array MFA_ROLES = ['MFA HQ Officer', 'MFA Principal Secretary'];
 
     public function viewAny(User $user): bool
@@ -57,6 +65,16 @@ class MissionPolicy extends BasePolicy
     public function deactivate(User $user, Mission $mission): bool
     {
         return $this->isSystemAdministrator($user);
+    }
+
+    /**
+     * FR-AUTH-021 / BR-004: set or clear which attache a department has
+     * posted to a mission. Admin\MissionLinkController additionally pins a
+     * Ministry Administrator to its own department's link.
+     */
+    public function managePostings(User $user): bool
+    {
+        return AdministrationService::isSystemAdministrator($user) || AdministrationService::isMinistryAdministrator($user);
     }
 
     /**

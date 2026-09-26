@@ -30,11 +30,16 @@ class MissionResource extends JsonResource
             'active' => $this->active,
             'host_country' => $this->when($isSystemAdministrator, $this->host_country),
             'time_zone' => $this->when($isSystemAdministrator, $this->time_zone),
+            // Loaded only for administrators (Admin\MissionController::index(),
+            // already narrowed to a Ministry Administrator's own department).
             'mission_ministry_links' => $this->when(
-                $isSystemAdministrator && $this->relationLoaded('missionMinistryLinks'),
+                $this->relationLoaded('missionMinistryLinks'),
                 fn () => $this->missionMinistryLinks->map(fn ($link) => [
                     'ministry_id' => $link->ministry_id,
                     'active_attache_user_id' => $link->active_attache_user_id,
+                    'active_attache' => $link->relationLoaded('activeAttache') && $link->activeAttache
+                        ? ['id' => $link->activeAttache->id, 'full_name' => $link->activeAttache->full_name]
+                        : null,
                 ]),
             ),
             'created_at' => $this->when($isSystemAdministrator, $this->created_at),

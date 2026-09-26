@@ -47,6 +47,10 @@ class QaTestAccountSeeder extends Seeder
         $this->account('synthetic.attache@tradewatch.go.ke', 'QA Synthetic Attache', 'Ministry Attache', $synthetic->id, $berlin->id, $password);
         $this->account('director@tradewatch.go.ke', 'QA Director External Trade', 'Ministry HQ Officer', $sdt->id, null, $password);
         $this->account('hqdirector@tradewatch.go.ke', 'QA Ministry HQ Director', 'Ministry HQ Director', $sdt->id, null, $password);
+        // ADR-006: one Ministry Administrator per department, so the isolation
+        // specs can prove neither sees the other's users or configuration.
+        $this->account('ministryadmin@tradewatch.go.ke', 'QA Ministry Administrator', 'Ministry Administrator', $sdt->id, null, $password);
+        $this->account('synthetic.ministryadmin@tradewatch.go.ke', 'QA Synthetic Ministry Administrator', 'Ministry Administrator', $synthetic->id, null, $password);
     }
 
     private function account(string $email, string $fullName, string $roleName, ?string $ministryId, ?string $missionId, string $password): void

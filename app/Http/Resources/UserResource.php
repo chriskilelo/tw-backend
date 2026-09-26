@@ -24,6 +24,7 @@ class UserResource extends JsonResource
             'role' => $this->whenLoaded('role', fn () => [
                 'id' => $this->role->id,
                 'name' => $this->role->name,
+                'display_title' => $this->role->display_title,
             ]),
             'mission' => $this->whenLoaded('mission', fn () => $this->mission ? [
                 'id' => $this->mission->id,
@@ -32,6 +33,10 @@ class UserResource extends JsonResource
             'ministry' => $this->whenLoaded('ministry', fn () => $this->ministry ? [
                 'id' => $this->ministry->id,
                 'name' => $this->ministry->name,
+            ] : null),
+            'home_ministry' => $this->whenLoaded('homeMinistry', fn () => $this->homeMinistry ? [
+                'id' => $this->homeMinistry->id,
+                'name' => $this->homeMinistry->name,
             ] : null),
             'language_preference' => $this->language_preference,
             'last_login_at' => $this->last_login_at,

@@ -76,6 +76,9 @@ class PermissionCatalogueService
         'content.classify',
         'user.manage',
         'permission.manage',
+        'config.manage',
+        'approval.request',
+        'approval.decide',
     ];
 
     /**
@@ -122,7 +125,7 @@ class PermissionCatalogueService
         $viewOnly = self::READ_TYPE_KEYS;
 
         return [
-            'System Administrator' => [...$viewOnly, 'user.manage', 'permission.manage'],
+            'System Administrator' => [...$viewOnly, 'user.manage', 'permission.manage', 'config.manage', 'approval.decide'],
             'Head of Mission' => $viewOnly,
             'Deputy Head of Mission' => $viewOnly,
             'MFA HQ Officer' => $viewOnly,
@@ -163,6 +166,9 @@ class PermissionCatalogueService
                 'directive.issue',
             ],
             'Honorary Consul' => $viewOnly,
+            // ADR-006, BR-025: administration of one department only — no
+            // operational read keys at all, unlike every other role above.
+            'Ministry Administrator' => ['user.manage', 'config.manage', 'approval.request'],
         ];
     }
 }

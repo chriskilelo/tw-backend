@@ -52,7 +52,17 @@ class ModelObserver
             (string) $model->getKey(),
             $changes,
             $request->ip(),
+            $this->ministryIdOf($model),
         );
+    }
+
+    /**
+     * FR-AUDIT-006: the department the mutated record belongs to, when it
+     * carries one directly; otherwise AuditService falls back to the actor's.
+     */
+    private function ministryIdOf(Model $model): ?string
+    {
+        return array_key_exists('ministry_id', $model->getAttributes()) ? $model->getAttribute('ministry_id') : null;
     }
 
     /**

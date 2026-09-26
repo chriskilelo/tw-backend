@@ -479,3 +479,72 @@ it('rejects a Ministry HQ Officer from the directive overview and compliance end
     $this->actingAs($officer)->getJson('/api/v1/sdt/directives/overview')->assertForbidden();
     $this->actingAs($officer)->getJson('/api/v1/sdt/directives/compliance')->assertForbidden();
 });
+
+// --- ADR-006: leadership switches shared by the PS and the Ministry Administrator ---
+
+function sdtMinistryAdministrator(Ministry $ministry): User
+{
+    return User::factory()->create([
+        'role_id' => sdtRole('Ministry Administrator', '1')->id,
+        'ministry_id' => $ministry->id,
+        'mission_id' => null,
+    ]);
+}
+
+it('lets the Ministry Administrator switch the Acting PS on and off for its own department (TC-FR-SDT-004-MA)', function () {
+    $ministry = Ministry::factory()->create();
+    $administrator = sdtMinistryAdministrator($ministry);
+    $officer = ministryHqOfficer($ministry);
+
+    $this->actingAs($administrator)->postJson('/api/v1/sdt/acting-ps/activate', ['user_id' => $officer->id])->assertOk();
+    expect($officer->fresh()->role->name)->toBe('Acting PS');
+
+    $this->actingAs($administrator)->postJson('/api/v1/sdt/acting-ps/deactivate')->assertOk();
+    expect($officer->fresh()->role->name)->toBe('Ministry HQ Officer');
+});
+
+it('pins every Acting PS actor but a System Administrator to its own department (TC-FR-SDT-006-MA)', function () {
+    $ministry = Ministry::factory()->create();
+    $otherMinistry = Ministry::factory()->create();
+    $foreignOfficer = ministryHqOfficer($otherMinistry);
+
+    $this->actingAs(sdtMinistryAdministrator($ministry))
+        ->postJson('/api/v1/sdt/acting-ps/activate', ['user_id' => $foreignOfficer->id])
+        ->assertStatus(422);
+
+    $this->actingAs(sdtSystemAdministrator())->postJson('/api/v1/sdt/acting-ps/activate', ['user_id' => $foreignOfficer->id])->assertOk();
+
+    // A PS naming another department's ministry_id can no longer end its Acting PS.
+    $this->actingAs(ministryPs($ministry))
+        ->postJson('/api/v1/sdt/acting-ps/deactivate', ['ministry_id' => $otherMinistry->id])
+        ->assertStatus(422);
+    expect($otherMinistry->fresh()->acting_ps_active)->toBeTrue();
+});
+
+it('lets the PS or the Ministry Administrator switch the Designated Deputy on and off (TC-FR-SDT-003)', function () {
+    $ministry = Ministry::factory()->create();
+    $deputy = ministryHqOfficer($ministry);
+
+    $this->actingAs(ministryPs($ministry))->postJson('/api/v1/sdt/designated-deputy/activate', ['user_id' => $deputy->id])
+        ->assertOk()->assertJsonPath('data.designated_deputy_user_id', $deputy->id);
+    expect($ministry->fresh()->designated_deputy_active)->toBeTrue();
+
+    $this->actingAs(sdtMinistryAdministrator($ministry))->postJson('/api/v1/sdt/designated-deputy/deactivate')->assertOk();
+    expect($ministry->fresh()->designated_deputy_active)->toBeFalse();
+
+    expect(AuditLog::where('action', 'designated_deputy.activated')->where('ministry_id', $ministry->id)->exists())->toBeTrue();
+    expect(AuditLog::where('action', 'designated_deputy.deactivated')->where('ministry_id', $ministry->id)->exists())->toBeTrue();
+});
+
+it('rejects a cross-department or unauthorised Designated Deputy switch (TC-FR-SDT-003-B)', function () {
+    $ministry = Ministry::factory()->create();
+    $foreignDeputy = ministryHqOfficer(Ministry::factory()->create());
+
+    $this->actingAs(sdtMinistryAdministrator($ministry))
+        ->postJson('/api/v1/sdt/designated-deputy/activate', ['user_id' => $foreignDeputy->id])
+        ->assertStatus(422);
+
+    $this->actingAs(ministryHqOfficer($ministry))
+        ->postJson('/api/v1/sdt/designated-deputy/activate', ['user_id' => ministryHqOfficer($ministry)->id])
+        ->assertForbidden();
+});

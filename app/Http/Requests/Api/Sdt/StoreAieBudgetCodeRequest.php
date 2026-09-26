@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Api\Sdt;
 
+use App\Http\Requests\Api\Concerns\PinsDepartmentForMinistryAdministrator;
 use App\Http\Requests\Api\FormRequest;
 
 /**
@@ -13,6 +14,8 @@ use App\Http\Requests\Api\FormRequest;
  */
 class StoreAieBudgetCodeRequest extends FormRequest
 {
+    use PinsDepartmentForMinistryAdministrator;
+
     public function authorize(): bool
     {
         return true;
@@ -24,7 +27,7 @@ class StoreAieBudgetCodeRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'ministry_id' => ['required', 'uuid', 'exists:ministries,id'],
+            'ministry_id' => $this->departmentRules(),
             'value' => ['required', 'string', 'max:255'],
             'display_order' => ['sometimes', 'integer', 'min:0'],
             'active' => ['sometimes', 'boolean'],

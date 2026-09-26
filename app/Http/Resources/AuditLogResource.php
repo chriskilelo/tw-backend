@@ -19,6 +19,7 @@ class AuditLogResource extends JsonResource
         return [
             'id' => $this->id,
             'user_id' => $this->user_id,
+            'ministry_id' => $this->ministry_id,
             'user_full_name' => $this->whenLoaded('user', fn () => $this->user?->full_name),
             'action' => $this->action,
             'affected_entity_type' => $this->affected_entity_type,

@@ -83,3 +83,49 @@ it('lets a System Administrator deactivate a master data entry without a deploym
     $response->assertOk();
     $this->assertDatabaseHas('master_data_entries', ['id' => $entry->id, 'active' => false]);
 });
+
+// --- FR-MDATA-003: department-scoped list administration (ADR-006) ---
+
+function masterDataMinistryAdministrator(Ministry $ministry): User
+{
+    return User::factory()->create([
+        'role_id' => masterDataRole('Ministry Administrator', '1', 'ministry')->id,
+        'ministry_id' => $ministry->id,
+    ]);
+}
+
+it('shows a Ministry Administrator its own and platform-wide lists only (TC-FR-MDATA-003-A)', function () {
+    $ownMinistry = Ministry::factory()->create();
+    $otherMinistry = Ministry::factory()->create();
+    $own = MasterDataEntry::factory()->create(['category' => 'inquiry_category', 'ministry_id' => $ownMinistry->id]);
+    $platformWide = MasterDataEntry::factory()->create(['category' => 'inquiry_category', 'ministry_id' => null]);
+    $foreign = MasterDataEntry::factory()->create(['category' => 'inquiry_category', 'ministry_id' => $otherMinistry->id]);
+
+    $ids = collect($this->actingAs(masterDataMinistryAdministrator($ownMinistry))->getJson('/api/v1/master-data?category=inquiry_category')->assertOk()->json('data'))->pluck('id');
+
+    expect($ids)->toContain($own->id)->toContain($platformWide->id)->not->toContain($foreign->id);
+});
+
+it('pins new entries to the Ministry Administrator\'s department (TC-FR-MDATA-003-B)', function () {
+    $ownMinistry = Ministry::factory()->create();
+    $administrator = masterDataMinistryAdministrator($ownMinistry);
+
+    $this->actingAs($administrator)->postJson('/api/v1/sdt/config/alert-fields', ['value' => 'market_access'])
+        ->assertCreated()->assertJsonPath('data.ministry_id', $ownMinistry->id);
+
+    $this->actingAs($administrator)->postJson('/api/v1/sdt/config/alert-fields', [
+        'value' => 'elsewhere',
+        'ministry_id' => Ministry::factory()->create()->id,
+    ])->assertStatus(422);
+});
+
+it('reports another department\'s or a platform-wide entry as not found for edits (TC-FR-MDATA-003-C)', function () {
+    $administrator = masterDataMinistryAdministrator(Ministry::factory()->create());
+    $foreign = MasterDataEntry::factory()->create(['category' => 'alert_intelligence_type', 'ministry_id' => Ministry::factory()->create()->id]);
+    $platformWide = MasterDataEntry::factory()->create(['category' => 'inquiry_category', 'ministry_id' => null]);
+
+    $this->actingAs($administrator)->patchJson("/api/v1/sdt/config/alert-fields/{$foreign->id}", ['value' => 'hijacked'])->assertNotFound();
+    $this->actingAs($administrator)->patchJson("/api/v1/master-data/{$platformWide->id}", ['value' => 'hijacked'])->assertNotFound();
+
+    expect($foreign->fresh()->value)->not->toBe('hijacked');
+});

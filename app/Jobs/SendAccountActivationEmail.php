@@ -19,13 +19,16 @@ class SendAccountActivationEmail implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public function __construct(public readonly string $email, public readonly string $token)
-    {
+    public function __construct(
+        public readonly string $email,
+        public readonly string $token,
+        public readonly ?string $createdBy = null,
+    ) {
         $this->onQueue('notifications');
     }
 
     public function handle(): void
     {
-        Mail::to($this->email)->send(new AccountActivationMail($this->email, $this->token));
+        Mail::to($this->email)->send(new AccountActivationMail($this->email, $this->token, $this->createdBy));
     }
 }

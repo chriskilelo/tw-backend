@@ -19,6 +19,7 @@ use App\Http\Resources\KpiDefinitionResource;
 use App\Models\KpiDefinition;
 use App\Models\MasterDataEntry;
 use App\Models\ReferralOrganisation;
+use App\Services\AdministrationService;
 use App\Services\KpiService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -67,7 +68,7 @@ class ConfigController extends Controller
 
         $entries = MasterDataEntry::query()
             ->where('category', self::ALERT_FIELD_CATEGORY)
-            ->when($request->filled('ministry_id'), fn ($query) => $query->where('ministry_id', $request->string('ministry_id')))
+            ->when($this->departmentFilter($request) !== null, fn ($query) => $query->where('ministry_id', $this->departmentFilter($request)))
             ->orderBy('display_order')
             ->orderBy('value')
             ->get();
@@ -92,6 +93,7 @@ class ConfigController extends Controller
         Gate::authorize('manage', MasterDataEntry::class);
 
         abort_if($masterDataEntry->category !== self::ALERT_FIELD_CATEGORY, 404);
+        $this->abortUnlessOwnDepartment($request, $masterDataEntry->ministry_id);
 
         $masterDataEntry->fill($request->validated())->save();
 
@@ -113,7 +115,7 @@ class ConfigController extends Controller
 
         $entries = MasterDataEntry::query()
             ->where('category', self::AIE_BUDGET_CODE_CATEGORY)
-            ->when($request->filled('ministry_id'), fn ($query) => $query->where('ministry_id', $request->string('ministry_id')))
+            ->when($this->departmentFilter($request) !== null, fn ($query) => $query->where('ministry_id', $this->departmentFilter($request)))
             ->orderBy('display_order')
             ->orderBy('value')
             ->get();
@@ -138,6 +140,7 @@ class ConfigController extends Controller
         Gate::authorize('manage', MasterDataEntry::class);
 
         abort_if($masterDataEntry->category !== self::AIE_BUDGET_CODE_CATEGORY, 404);
+        $this->abortUnlessOwnDepartment($request, $masterDataEntry->ministry_id);
 
         $masterDataEntry->fill($request->validated())->save();
 
@@ -162,7 +165,7 @@ class ConfigController extends Controller
         Gate::authorize('manageDefinitions', KpiDefinition::class);
 
         $definitions = KpiDefinition::query()
-            ->when($request->filled('ministry_id'), fn ($query) => $query->where('ministry_id', $request->string('ministry_id')))
+            ->when($this->departmentFilter($request) !== null, fn ($query) => $query->where('ministry_id', $this->departmentFilter($request)))
             ->orderBy('name')
             ->get();
 
@@ -181,6 +184,7 @@ class ConfigController extends Controller
     public function updateKpiSetting(UpdateKpiDefinitionRequest $request, KpiDefinition $kpiDefinition): JsonResponse
     {
         Gate::authorize('manageDefinitions', KpiDefinition::class);
+        $this->abortUnlessOwnDepartment($request, $kpiDefinition->ministry_id);
 
         $kpiDefinition->fill($request->validated())->save();
 
@@ -219,7 +223,7 @@ class ConfigController extends Controller
         $entries = MasterDataEntry::query()
             ->whereIn('category', self::INQUIRY_SETTING_CATEGORIES)
             ->when($request->filled('category'), fn ($query) => $query->where('category', $request->string('category')))
-            ->when($request->filled('ministry_id'), fn ($query) => $query->where('ministry_id', $request->string('ministry_id')))
+            ->when($this->departmentFilter($request) !== null, fn ($query) => $query->where('ministry_id', $this->departmentFilter($request)))
             ->orderBy('category')
             ->orderBy('display_order')
             ->orderBy('value')
@@ -242,6 +246,7 @@ class ConfigController extends Controller
         Gate::authorize('manage', MasterDataEntry::class);
 
         abort_if(! in_array($masterDataEntry->category, self::INQUIRY_SETTING_CATEGORIES, true), 404);
+        $this->abortUnlessOwnDepartment($request, $masterDataEntry->ministry_id);
 
         $masterDataEntry->fill($request->validated())->save();
 
@@ -255,7 +260,7 @@ class ConfigController extends Controller
         Gate::authorize('manage', ReferralOrganisation::class);
 
         $organisations = ReferralOrganisation::query()
-            ->when($request->filled('ministry_id'), fn ($query) => $query->where('ministry_id', $request->string('ministry_id')))
+            ->when($this->departmentFilter($request) !== null, fn ($query) => $query->where('ministry_id', $this->departmentFilter($request)))
             ->when($request->filled('active'), fn ($query) => $query->where('active', $request->boolean('active')))
             ->orderBy('name')
             ->get();
@@ -275,10 +280,31 @@ class ConfigController extends Controller
     public function updateReferralOrganisation(UpdateReferralOrganisationRequest $request, ReferralOrganisation $referralOrganisation): JsonResponse
     {
         Gate::authorize('manage', ReferralOrganisation::class);
+        $this->abortUnlessOwnDepartment($request, $referralOrganisation->ministry_id);
 
         $referralOrganisation->fill($request->validated())->save();
 
         return $this->respondWithData($this->presentOrganisation($referralOrganisation->fresh()));
+    }
+
+    /**
+     * ADR-006: a Ministry Administrator's listings are always its own
+     * department, whatever ministry_id it asks for; a System Administrator
+     * may filter by any department or none.
+     */
+    private function departmentFilter(Request $request): ?string
+    {
+        return AdministrationService::listingMinistryId($request->user(), $request->input('ministry_id'));
+    }
+
+    /**
+     * ADR-006: another department's configuration row is reported as not
+     * found to a Ministry Administrator; platform-wide rows (no department)
+     * are System Administrator only.
+     */
+    private function abortUnlessOwnDepartment(Request $request, ?string $ministryId): void
+    {
+        abort_unless(AdministrationService::canAdministerMinistry($request->user(), $ministryId), 404);
     }
 
     /**

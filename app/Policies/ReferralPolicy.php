@@ -4,6 +4,7 @@ namespace App\Policies;
 
 use App\Models\ReferralEntry;
 use App\Models\User;
+use App\Services\AdministrationService;
 
 /**
  * FR-REF-* role requirements. Registered manually in
@@ -20,6 +21,12 @@ use App\Models\User;
  */
 class ReferralPolicy extends BasePolicy
 {
+    /**
+     * ADR-006: only the organisation registry is department configuration;
+     * referral entries stay denied to a Ministry Administrator (BR-025).
+     */
+    protected const array MINISTRY_ADMINISTRATION_ABILITIES = ['manage'];
+
     private const array SUMMARY_ROLES = ['Ministry HQ Officer', 'Ministry HQ Director'];
 
     public function viewAny(User $user): bool
@@ -56,6 +63,6 @@ class ReferralPolicy extends BasePolicy
      */
     public function manage(User $user): bool
     {
-        return $user->role?->name === 'System Administrator';
+        return AdministrationService::isSystemAdministrator($user) || AdministrationService::isMinistryAdministrator($user);
     }
 }

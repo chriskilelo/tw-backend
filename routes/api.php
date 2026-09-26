@@ -1,8 +1,12 @@
 <?php
 
+use App\Http\Controllers\Api\Admin\ApprovalRequestController;
 use App\Http\Controllers\Api\Admin\AuditLogController;
 use App\Http\Controllers\Api\Admin\MasterDataController;
+use App\Http\Controllers\Api\Admin\MinistryController;
 use App\Http\Controllers\Api\Admin\MissionController;
+use App\Http\Controllers\Api\Admin\MissionLinkController;
+use App\Http\Controllers\Api\Admin\RoleController;
 use App\Http\Controllers\Api\Admin\UserController;
 use App\Http\Controllers\Api\Alerts\AlertController;
 use App\Http\Controllers\Api\Auth\LoginController;
@@ -25,6 +29,7 @@ use App\Http\Controllers\Api\Reports\PeriodicReportController;
 use App\Http\Controllers\Api\Reports\ReportTemplateController;
 use App\Http\Controllers\Api\Sdt\ActingPsController;
 use App\Http\Controllers\Api\Sdt\ConfigController;
+use App\Http\Controllers\Api\Sdt\DesignatedDeputyController;
 use App\Http\Controllers\Api\Sdt\DirectivesController as SdtDirectivesController;
 use App\Http\Controllers\Api\Sdt\HqWorkspaceController;
 use App\Http\Controllers\Api\Sdt\HrmdDashboardController;
@@ -83,6 +88,35 @@ Route::prefix('v1')->group(function (): void {
 
         Route::prefix('audit-logs')->group(function (): void {
             Route::get('/', [AuditLogController::class, 'index']);
+        });
+
+        // ADR-006 / FR-AUTH-021: role picker for account administration.
+        Route::get('/roles', [RoleController::class, 'index']);
+
+        // ADR-006: department registry. System Administrator sees and
+        // onboards every department; a Ministry Administrator sees its own.
+        Route::prefix('ministries')->group(function (): void {
+            Route::get('/', [MinistryController::class, 'index']);
+            Route::post('/', [MinistryController::class, 'store']);
+        });
+
+        // ADR-006 / BR-004: set or clear a department's attache posting at a
+        // mission. Missions themselves stay System Administrator only above.
+        Route::patch('/mission-links/{mission}', [MissionLinkController::class, 'update']);
+
+        // FR-AUTH-022/023, BR-027: Principal Secretary approval requests.
+        // Not under ministry.scope: ApprovalRequest's global scope falls back
+        // to the signed-in user's own department (see the controller).
+        Route::prefix('approval-requests')->group(function (): void {
+            Route::get('/', [ApprovalRequestController::class, 'index']);
+            Route::post('/ps-appointment', [ApprovalRequestController::class, 'storeAppointment']);
+            Route::post('/ps-promotion', [ApprovalRequestController::class, 'storePromotion']);
+            Route::post('/ps-deactivation', [ApprovalRequestController::class, 'storeDeactivation']);
+            Route::post('/ps-succession', [ApprovalRequestController::class, 'storeSuccession']);
+            Route::get('/{approvalRequest}', [ApprovalRequestController::class, 'show']);
+            Route::post('/{approvalRequest}/approve', [ApprovalRequestController::class, 'approve']);
+            Route::post('/{approvalRequest}/reject', [ApprovalRequestController::class, 'reject']);
+            Route::post('/{approvalRequest}/cancel', [ApprovalRequestController::class, 'cancel']);
         });
 
         Route::prefix('notifications')->group(function (): void {
@@ -318,6 +352,11 @@ Route::prefix('v1')->group(function (): void {
             // master-data/mfa-awareness).
             Route::post('/acting-ps/activate', [ActingPsController::class, 'activate']);
             Route::post('/acting-ps/deactivate', [ActingPsController::class, 'deactivate']);
+
+            // FR-SDT-003, FR-ALERT-008: Designated Deputy fallback switch —
+            // same actors and same reasoning as acting-ps above (ADR-006).
+            Route::post('/designated-deputy/activate', [DesignatedDeputyController::class, 'activate']);
+            Route::post('/designated-deputy/deactivate', [DesignatedDeputyController::class, 'deactivate']);
 
             Route::prefix('config')->group(function (): void {
                 Route::get('/alert-fields', [ConfigController::class, 'alertFields']);

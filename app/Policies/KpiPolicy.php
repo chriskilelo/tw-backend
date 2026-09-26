@@ -3,6 +3,7 @@
 namespace App\Policies;
 
 use App\Models\User;
+use App\Services\AdministrationService;
 
 /**
  * FR-KPI-001 to 016, FR-SDT-016 to 018 (CLAUDE.md Section 11,
@@ -30,6 +31,12 @@ use App\Models\User;
  */
 class KpiPolicy extends BasePolicy
 {
+    /**
+     * ADR-006: KPI definitions and profiles are department configuration;
+     * targets, actuals, comparisons and dashboards stay denied (BR-025).
+     */
+    protected const array MINISTRY_ADMINISTRATION_ABILITIES = ['manageDefinitions', 'manageProfiles'];
+
     /**
      * FR-KPI-005: "a Ministry HQ Director or Ministry PS" may set targets.
      * Acting PS is included per MinistryPolicy::viewPsDashboard()'s
@@ -73,7 +80,7 @@ class KpiPolicy extends BasePolicy
      */
     public function manageDefinitions(User $user): bool
     {
-        return $user->role?->name === 'System Administrator';
+        return AdministrationService::isSystemAdministrator($user) || AdministrationService::isMinistryAdministrator($user);
     }
 
     /**
@@ -82,7 +89,7 @@ class KpiPolicy extends BasePolicy
      */
     public function manageProfiles(User $user): bool
     {
-        return $user->role?->name === 'System Administrator';
+        return AdministrationService::isSystemAdministrator($user) || AdministrationService::isMinistryAdministrator($user);
     }
 
     public function setTarget(User $user): bool

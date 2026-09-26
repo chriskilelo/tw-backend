@@ -22,7 +22,15 @@ class AccountActivationMail extends Mailable implements ShouldQueue
 {
     use Queueable, SerializesModels;
 
-    public function __construct(public readonly string $email, public readonly string $token) {}
+    /**
+     * $createdBy is the FR-AUTH-025 sign-off of the administrator who created
+     * the account, e.g. "Jane Doe — {display title}, {department}".
+     */
+    public function __construct(
+        public readonly string $email,
+        public readonly string $token,
+        public readonly ?string $createdBy = null,
+    ) {}
 
     public function envelope(): Envelope
     {
@@ -40,6 +48,7 @@ class AccountActivationMail extends Mailable implements ShouldQueue
                     $this->token,
                     urlencode($this->email),
                 ),
+                'createdBy' => $this->createdBy,
             ],
         );
     }
