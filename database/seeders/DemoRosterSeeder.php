@@ -33,6 +33,7 @@ class DemoRosterSeeder extends Seeder
      *     primary: array<string, User>,
      *     junior: array<string, array<int, User>>,
      *     hq: array<string, User>,
+     *     ministry_administrators: array<int, User>,
      * }
      */
     public function seed(DemoManifest $manifest, string $ministryId): array
@@ -81,8 +82,30 @@ class DemoRosterSeeder extends Seeder
         }
 
         $hq = $this->seedHqPersonnel($manifest, $ministryId, $password);
+        $ministryAdministrators = $this->seedMinistryAdministrators($manifest, $ministryId, $password);
 
-        return ['primary' => $primary, 'junior' => $junior, 'hq' => $hq];
+        return ['primary' => $primary, 'junior' => $junior, 'hq' => $hq, 'ministry_administrators' => $ministryAdministrators];
+    }
+
+    /**
+     * BR-028: at most 3 active Ministry Administrators per department. This
+     * dataset seeds exactly the cap for SDT — a Ministry Administrator has
+     * no operational access at all (BR-025), so unlike every other role in
+     * this roster, none of these three are ever referenced by the
+     * report/alert/inquiry/directive/KPI seeders below.
+     *
+     * @return array<int, User>
+     */
+    private function seedMinistryAdministrators(DemoManifest $manifest, string $ministryId, string $password): array
+    {
+        $roleId = Role::query()->where('name', 'Ministry Administrator')->value('id');
+
+        $names = ['Patrice Mutua', 'Grace Nyambura', 'Samuel Njoroge'];
+
+        return array_map(
+            fn (string $name): User => $this->upsertUser($manifest, $name, $roleId, $ministryId, null, $password),
+            $names,
+        );
     }
 
     /**
