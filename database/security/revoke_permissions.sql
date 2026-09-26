@@ -22,12 +22,11 @@
 -- the production database itself, not referenced by name), and PostgreSQL
 -- roles carry no '@host' component.
 --
--- Replace tradewatch_app below with the actual production application
--- database role name once it is provisioned — CLAUDE.md Section 2.2 has no
--- confirmed production role name yet; the local dev role is simply
--- "tradewatch" (see tw-backend/.env, DB_USERNAME).
+-- Production role name confirmed at first deployment (10.241.18.41,
+-- 2026-09-23): "tradewatch" (not the "tradewatch_app" placeholder this file
+-- previously used) — see tw-backend/.env, DB_USERNAME.
 
-REVOKE UPDATE, DELETE ON TABLE audit_logs FROM tradewatch_app;
-REVOKE UPDATE, DELETE ON TABLE inquiry_notes FROM tradewatch_app;
-REVOKE UPDATE, DELETE ON TABLE directive_notes FROM tradewatch_app;
-REVOKE UPDATE, DELETE ON TABLE alert_versions FROM tradewatch_app;
+REVOKE UPDATE, DELETE ON TABLE audit_logs FROM tradewatch;
+REVOKE UPDATE, DELETE ON TABLE inquiry_notes FROM tradewatch;
+REVOKE UPDATE, DELETE ON TABLE directive_notes FROM tradewatch;
+REVOKE UPDATE, DELETE ON TABLE alert_versions FROM tradewatch;
