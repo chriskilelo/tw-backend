@@ -26,7 +26,11 @@ class SearchService
      * ts_rank relevance score (FR-SEARCH-002 AC1). Each result carries the
      * five data points FR-SEARCH-003 requires: type, title/summary,
      * mission, date, and a context snippet with the matched term
-     * highlighted (via ts_headline).
+     * highlighted (via ts_headline). It also carries the record's workflow
+     * `status` and a few type-specific display fields (an alert's country,
+     * intelligence type and sector; an inquiry's sub-type), so the results
+     * page can show and translate them. None of these fields is personal
+     * data (LEG-001).
      *
      * @return array<int, array<string, mixed>>
      */
@@ -106,6 +110,10 @@ class SearchService
                 'snippet' => $alert->snippet,
                 'rank' => (float) $alert->rank,
                 'link' => "/alerts/{$alert->id}",
+                'status' => $alert->status,
+                'country' => $alert->country,
+                'intelligence_type' => $alert->intelligence_type,
+                'sector' => $alert->sector,
             ])
             ->all();
     }
@@ -136,6 +144,8 @@ class SearchService
                 'snippet' => $inquiry->snippet,
                 'rank' => (float) $inquiry->rank,
                 'link' => "/inquiries/{$inquiry->id}",
+                'status' => $inquiry->status,
+                'sub_type' => $inquiry->sub_type,
             ])
             ->all();
     }
@@ -169,6 +179,7 @@ class SearchService
                 'snippet' => $report->snippet,
                 'rank' => (float) $report->rank,
                 'link' => "/reports/{$report->id}",
+                'status' => $report->status,
             ])
             ->all();
     }
