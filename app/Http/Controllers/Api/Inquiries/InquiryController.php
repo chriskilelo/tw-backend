@@ -31,7 +31,16 @@ class InquiryController extends Controller
 {
     use ApiResponds;
 
-    private const array DETAIL_RELATIONS = ['mission', 'loggedBy', 'notes.authoredBy', 'events.loggedBy', 'linkedInquiry.mission'];
+    private const array DETAIL_RELATIONS = [
+        'mission',
+        'loggedBy',
+        'notes.authoredBy',
+        'events.loggedBy',
+        'linkedInquiry.mission',
+        'referralEntries.referralOrganisation',
+        'referralEntries.createdBy',
+        'referralEntries.attachments',
+    ];
 
     public function __construct(
         private readonly InquiryService $inquiryService,

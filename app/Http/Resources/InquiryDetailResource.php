@@ -7,8 +7,8 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
- * GET /inquiries/{id}: full inquiry detail plus its notes and events
- * timeline (FR-INQ-002, API-001 Section 7).
+ * GET /inquiries/{id}: full inquiry detail plus its notes, events timeline
+ * and referral history (FR-INQ-002, FR-REF-006, API-001 Section 7).
  *
  * @mixin Inquiry
  */
@@ -68,6 +68,32 @@ class InquiryDetailResource extends JsonResource
                 ] : null,
                 'created_at' => $event->created_at,
             ])),
+            'referrals' => $this->whenLoaded('referralEntries', fn () => $this->referralEntries
+                ->sortBy('referral_date')
+                ->values()
+                ->map(fn ($referral) => [
+                    'id' => $referral->id,
+                    'referral_organisation' => $referral->relationLoaded('referralOrganisation') && $referral->referralOrganisation ? [
+                        'id' => $referral->referralOrganisation->id,
+                        'name' => $referral->referralOrganisation->name,
+                    ] : null,
+                    'contact_person' => $referral->contact_person,
+                    'referral_date' => $referral->referral_date,
+                    'referral_method' => $referral->referral_method,
+                    'reference_number' => $referral->reference_number,
+                    'remarks' => $referral->remarks,
+                    'created_by' => $referral->relationLoaded('createdBy') && $referral->createdBy ? [
+                        'id' => $referral->createdBy->id,
+                        'full_name' => $referral->createdBy->full_name,
+                    ] : null,
+                    'attachments' => $referral->relationLoaded('attachments') ? $referral->attachments->map(fn ($attachment) => [
+                        'id' => $attachment->id,
+                        'original_filename' => $attachment->original_filename,
+                        'file_size_bytes' => $attachment->file_size_bytes,
+                        'mime_type' => $attachment->mime_type,
+                    ])->values() : [],
+                    'created_at' => $referral->created_at,
+                ])),
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
         ];
