@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Alert;
+use App\Models\Inquiry;
 use App\Models\Ministry;
 use App\Models\Mission;
 use App\Models\Role;
@@ -51,6 +52,47 @@ it('returns alerts matching a full-text search term, scoped to the searching use
     expect($results->first()['id'])->toBe($matchingAlert->id);
     expect($results->first()['type'])->toBe('alert');
     expect($results->first()['snippet'])->toContain('avocado');
+});
+
+it('returns each result\'s status and type-specific display fields (TC-FR-SEARCH-003)', function () {
+    $ministry = Ministry::factory()->create();
+    $mission = Mission::factory()->create();
+    $attache = searchMinistryAttache($ministry, $mission);
+
+    Alert::factory()->create([
+        'ministry_id' => $ministry->id,
+        'mission_id' => $mission->id,
+        'country' => 'Germany',
+        'sector' => 'Horticulture',
+        'intelligence_type' => 'trade_barriers',
+        'status' => 'assigned',
+        'product_description' => 'New macadamia import quota announced',
+    ]);
+
+    Inquiry::factory()->create([
+        'ministry_id' => $ministry->id,
+        'mission_id' => $mission->id,
+        'sub_type' => 'dispute_or_complaint',
+        'status' => 'in_progress',
+        'description' => 'Buyer disputes the grade of a macadamia consignment',
+    ]);
+
+    $response = $this->actingAs($attache)->getJson('/api/v1/search?q=macadamia');
+
+    $response->assertOk();
+    $results = collect($response->json('data'))->keyBy('type');
+
+    expect($results['alert'])->toMatchArray([
+        'status' => 'assigned',
+        'country' => 'Germany',
+        'intelligence_type' => 'trade_barriers',
+        'sector' => 'Horticulture',
+    ]);
+    expect($results['inquiry'])->toMatchArray([
+        'status' => 'in_progress',
+        'sub_type' => 'dispute_or_complaint',
+    ]);
+    expect($results['inquiry'])->not->toHaveKeys(['inquirer_email', 'inquirer_phone']);
 });
 
 it('rejects a search request with no query string', function () {
