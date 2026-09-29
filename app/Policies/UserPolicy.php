@@ -22,10 +22,19 @@ use App\Services\AdministrationService;
 class UserPolicy extends BasePolicy
 {
     protected const array MINISTRY_ADMINISTRATION_ABILITIES = [
-        'viewAny', 'view', 'create', 'update', 'deactivate', 'reactivate', 'resendActivation',
+        'viewAny', 'view', 'create', 'update', 'deactivate', 'reactivate', 'resendActivation', 'viewDashboard',
     ];
 
     public function viewAny(User $user): bool
+    {
+        return $this->isAdministrator($user);
+    }
+
+    /**
+     * The administrator dashboard (AdministrationDashboardService): account
+     * health and seat rules for the department(s) the actor administers.
+     */
+    public function viewDashboard(User $user): bool
     {
         return $this->isAdministrator($user);
     }

@@ -331,6 +331,105 @@ class KpiService
     }
 
     /**
+     * FR-KPI-010: one mission's target, actual and status for every active
+     * KPI in its ministry, for one cycle label — the director view's metrics
+     * (FR-KPI-008) restricted to a single mission, read-only. Not
+     * audit-logged: FR-KPI-011's access logging covers HRM&D access only.
+     *
+     * @return array<int, array{kpi_definition_id: string, name: string, target: ?float, actual: ?float, status: string}>
+     */
+    public function missionPerformance(Mission $mission, string $ministryId, string $cycleLabel): array
+    {
+        $definitions = KpiDefinition::query()
+            ->withoutGlobalScopes()
+            ->where('ministry_id', $ministryId)
+            ->where('active', true)
+            ->orderBy('name')
+            ->get();
+
+        return $this->missionKpiRow($mission, $definitions, $cycleLabel)['kpis'];
+    }
+
+    /**
+     * Performance-status counts per ministry mission for one cycle label.
+     * Same targets, actuals and thresholds as buildComparisonMatrix(), but
+     * loaded in two bulk queries rather than two or three per KPI per
+     * mission, since the leadership dashboard only needs the counts.
+     *
+     * @return array<int, array{mission_id: string, mission_name: string, counts: array<string, int>, total: int}>
+     */
+    public function missionStatusSummary(string $ministryId, string $cycleLabel): array
+    {
+        $definitionIds = KpiDefinition::query()
+            ->withoutGlobalScopes()
+            ->where('ministry_id', $ministryId)
+            ->where('active', true)
+            ->pluck('id');
+
+        // Ascending order so keyBy() keeps the latest target per KPI and mission,
+        // matching kpiTargetVsActual()'s latest('created_at').
+        $targets = KpiTarget::query()
+            ->withoutGlobalScopes()
+            ->whereIn('kpi_definition_id', $definitionIds)
+            ->where('performance_cycle_label', $cycleLabel)
+            ->orderBy('created_at')
+            ->get()
+            ->keyBy(fn (KpiTarget $target): string => $target->kpi_definition_id.'|'.$target->mission_id);
+
+        $periodStarts = array_map(fn (Carbon $start): string => $start->toDateString(), $this->cycleQuarterStarts($cycleLabel));
+
+        $actuals = KpiActual::query()
+            ->withoutGlobalScopes()
+            ->whereIn('kpi_definition_id', $definitionIds)
+            ->whereIn('period_start_date', $periodStarts)
+            ->get()
+            ->unique(fn (KpiActual $actual): string => $actual->kpi_definition_id.'|'.$actual->mission_id.'|'.$actual->period_start_date->toDateString())
+            ->groupBy(fn (KpiActual $actual): string => $actual->kpi_definition_id.'|'.$actual->mission_id)
+            ->map(fn (Collection $rows): float => (float) $rows->sum(fn (KpiActual $actual): float => (float) $actual->actual_value));
+
+        return $this->ministryMissions($ministryId)
+            ->map(function (Mission $mission) use ($definitionIds, $targets, $actuals): array {
+                $counts = ['on_track' => 0, 'at_risk' => 0, 'below_target' => 0, 'no_target' => 0, 'no_data' => 0];
+
+                foreach ($definitionIds as $definitionId) {
+                    $key = $definitionId.'|'.$mission->id;
+                    $targetValue = $targets->get($key)?->target_value;
+
+                    $counts[$this->performanceStatus($targetValue !== null ? (float) $targetValue : null, $actuals->get($key))]++;
+                }
+
+                return [
+                    'mission_id' => $mission->id,
+                    'mission_name' => $mission->name,
+                    'counts' => $counts,
+                    'total' => $definitionIds->count(),
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
+    /**
+     * The quarter start dates a cycle label covers: one for "Q1 2027", two
+     * for "H1 2027" — the same quarters actualForCycle() reads.
+     *
+     * @return array<int, Carbon>
+     */
+    private function cycleQuarterStarts(string $cycleLabel): array
+    {
+        [$unit, $yearPart] = array_pad(explode(' ', $cycleLabel, 2), 2, null);
+        $year = (int) $yearPart;
+
+        $quarterNumbers = match ($unit) {
+            'H1' => [1, 2],
+            'H2' => [3, 4],
+            default => [(int) ltrim((string) $unit, 'Q')],
+        };
+
+        return array_map(fn (int $quarterNumber): Carbon => $this->quarterStart($year, $quarterNumber), $quarterNumbers);
+    }
+
+    /**
      * @return array{label: string, quarters: array<string, ?float>, total: ?float, quarters_reported: int}
      */
     private function aggregateHalf(KpiDefinition $kpi, Mission $mission, int $year, int $half): array

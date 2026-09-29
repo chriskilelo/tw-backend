@@ -29,6 +29,7 @@ it('embeds the mission and ministry names for a mission-scoped user (ProfilePage
         ->assertOk()
         ->assertJsonPath('data.user.mission.name', 'London')
         ->assertJsonPath('data.user.mission.host_country', 'United Kingdom')
+        ->assertJsonPath('data.user.mission.time_zone', $mission->time_zone)
         ->assertJsonPath('data.user.ministry.name', 'State Department for Trade');
 });
 

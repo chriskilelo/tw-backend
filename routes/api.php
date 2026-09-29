@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\Admin\AdministrationDashboardController;
 use App\Http\Controllers\Api\Admin\ApprovalRequestController;
 use App\Http\Controllers\Api\Admin\AuditLogController;
 use App\Http\Controllers\Api\Admin\MasterDataController;
@@ -12,6 +13,7 @@ use App\Http\Controllers\Api\Alerts\AlertController;
 use App\Http\Controllers\Api\Auth\LoginController;
 use App\Http\Controllers\Api\Auth\LogoutController;
 use App\Http\Controllers\Api\Auth\PasswordResetController;
+use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\Directives\DirectiveController;
 use App\Http\Controllers\Api\Governance\MfaAwarenessController;
 use App\Http\Controllers\Api\Governance\MissionActivityController;
@@ -86,6 +88,11 @@ Route::prefix('v1')->group(function (): void {
             Route::post('/{mission}/deactivate', [MissionController::class, 'deactivate']);
         });
 
+        // ADR-006: the administrator dashboard. Not ministry.scope-wrapped,
+        // like the account routes above; AdministrationDashboardService
+        // pins a Ministry Administrator to its own department explicitly.
+        Route::get('/admin/dashboard', [AdministrationDashboardController::class, 'show']);
+
         Route::prefix('audit-logs')->group(function (): void {
             Route::get('/', [AuditLogController::class, 'index']);
         });
@@ -128,6 +135,12 @@ Route::prefix('v1')->group(function (): void {
         // Layer 2 engine: ministry.scope binds current_ministry_id so the
         // Alert model's global scope (Session 5) filters every query
         // (CLAUDE.md Section 4, Rule 1; NFR-SEC-006).
+        // The role-shaped home dashboard (App\Services\DashboardService).
+        // ministry.scope binds the caller's department for every figure and
+        // turns away HRM&D Officers and Ministry Administrators, who have
+        // dashboards of their own (FR-SDT-018, BR-025).
+        Route::get('/dashboard', [DashboardController::class, 'show'])->middleware('ministry.scope');
+
         Route::prefix('alerts')->middleware('ministry.scope')->group(function (): void {
             Route::get('/', [AlertController::class, 'index']);
             Route::post('/', [AlertController::class, 'store']);
