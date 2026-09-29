@@ -404,7 +404,7 @@ class ReportService
      * "Q1 2027" for Jul-Sep 2027 / "Q4 2026" for Apr-Jun 2026 convention
      * already used by tests and seed data).
      */
-    private function periodLabelFor(Carbon $quarterStart): string
+    public function periodLabelFor(Carbon $quarterStart): string
     {
         $quarterNumber = match ($quarterStart->month) {
             7 => 1,
@@ -422,7 +422,7 @@ class ReportService
      * of a month under the fixed quarterly calendar, so adding a day always
      * lands on the 1st of the next month).
      */
-    private function resolveSubmissionDeadline(Carbon $periodEndDate): Carbon
+    public function resolveSubmissionDeadline(Carbon $periodEndDate): Carbon
     {
         return $periodEndDate->copy()->addDay()->addDays(14)->endOfDay();
     }

@@ -29,7 +29,7 @@ class DirectiveService
     /**
      * CLAUDE.md Section 8 Stale Directive Threshold (FR-DIR-010).
      */
-    private const int STALE_THRESHOLD_DAYS = 14;
+    public const int STALE_THRESHOLD_DAYS = 14;
 
     /**
      * Keyed by target status, valued by the statuses that target may be

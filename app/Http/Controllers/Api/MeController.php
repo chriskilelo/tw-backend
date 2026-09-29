@@ -123,6 +123,10 @@ class MeController extends Controller
                         'id' => $user->mission->id,
                         'name' => $user->mission->name,
                         'host_country' => $user->mission->host_country,
+                        // The dashboard's mission clock: the user's own posting, so
+                        // this does not widen GET /missions' administrator-only time_zone.
+                        'city' => $user->mission->city,
+                        'time_zone' => $user->mission->time_zone,
                     ]
                     : null,
                 'ministry' => $user->relationLoaded('ministry') && $user->ministry

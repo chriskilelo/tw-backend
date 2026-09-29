@@ -193,6 +193,24 @@ it('never surfaces another ministry\'s alerts or inquiries through full-text sea
     expect($response->json('data'))->toHaveCount(0);
 });
 
+it('never counts another ministry\'s alerts or inquiries on the leadership dashboard (TC-NFR-SEC-006-D)', function () {
+    $ownMinistry = Ministry::factory()->create();
+    $otherMinistry = Ministry::factory()->create();
+    $role = Role::query()->firstOrCreate(['name' => 'Ministry HQ Director'], ['layer' => '2/3', 'scope' => 'ministry']);
+    $director = User::factory()->create(['role_id' => $role->id, 'ministry_id' => $ownMinistry->id]);
+
+    Alert::factory()->count(2)->create(['ministry_id' => $ownMinistry->id]);
+    Alert::factory()->count(5)->create(['ministry_id' => $otherMinistry->id]);
+    Inquiry::factory()->count(4)->create(['ministry_id' => $otherMinistry->id, 'status' => 'in_progress']);
+
+    $response = $this->actingAs($director)->getJson('/api/v1/dashboard');
+
+    $response->assertOk();
+    expect($response->json('data.alerts.this_quarter'))->toBe(2)
+        ->and($response->json('data.alerts.unacknowledged'))->toBe(2)
+        ->and($response->json('data.inquiries.open'))->toBe(0);
+});
+
 // --- ADR-006 / BR-025: Ministry Administrator isolation and operational fence ---
 
 function ministryIsolationAdministrator(Ministry $ministry): User
@@ -222,6 +240,7 @@ it('denies a Ministry Administrator every operational endpoint, reads included (
     'report compliance' => ['GET', '/api/v1/sdt/reports/compliance'],
     'referral summary' => ['GET', '/api/v1/referrals/summary'],
     'mission activity' => ['GET', '/api/v1/mission-activity'],
+    'operational dashboard' => ['GET', '/api/v1/dashboard'],
 ]);
 
 it('reaches its own department\'s administration endpoints (TC-NFR-SEC-006-MA-B)', function (string $uri) {
@@ -240,6 +259,7 @@ it('reaches its own department\'s administration endpoints (TC-NFR-SEC-006-MA-B)
     '/api/v1/approval-requests',
     '/api/v1/ministries',
     '/api/v1/missions',
+    '/api/v1/admin/dashboard',
 ]);
 
 it('is confined to its own department by the global scope, never bypassing it (TC-NFR-SEC-006-MA-C)', function () {
