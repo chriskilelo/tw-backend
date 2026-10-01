@@ -20,6 +20,7 @@ class KpiTarget extends Model
         'performance_cycle_label',
         'cycle_start_date',
         'target_value',
+        'note',
         'set_by_user_id',
     ];
 

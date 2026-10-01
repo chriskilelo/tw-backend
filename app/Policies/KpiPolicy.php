@@ -13,11 +13,14 @@ use App\Services\AdministrationService;
  * ReferralPolicy/ReportPolicy's precedent for one policy spanning several
  * related models.
  *
- * view/viewAny is left open to any authenticated ministry-scoped user
- * (dashboards under FR-KPI-008/009 read target-vs-actual data across
- * several roles); ministry isolation is enforced by each model's global
- * scope, not this policy. BasePolicy::before() already denies every
- * non-view ability for the four BR-020 read-only roles.
+ * KPI targets and actuals are Restricted data (TW-SRS-001 Section 5:
+ * "elevated ministry roles"), so reads are role-gated too: the four BR-020
+ * mission governance roles, which bypass ministry scoping, would otherwise
+ * read every department's actuals. Ministry isolation itself is enforced
+ * by each model's global scope and the services' explicit ministry
+ * filters; an attache's reads are pinned to their own mission by the
+ * controllers. BasePolicy::before() still denies every non-view ability
+ * for the four BR-020 roles.
  *
  * FR-SDT-018: this is also the ONLY policy an HRM&D Officer may ever pass
  * BasePolicy::before() on — isKpiScoped() below overrides the base class's
@@ -35,7 +38,7 @@ class KpiPolicy extends BasePolicy
      * ADR-006: KPI definitions and profiles are department configuration;
      * targets, actuals, comparisons and dashboards stay denied (BR-025).
      */
-    protected const array MINISTRY_ADMINISTRATION_ABILITIES = ['manageDefinitions', 'manageProfiles'];
+    protected const array MINISTRY_ADMINISTRATION_ABILITIES = ['manageDefinitions', 'manageProfiles', 'viewProfiles'];
 
     /**
      * FR-KPI-005: "a Ministry HQ Director or Ministry PS" may set targets.
@@ -62,14 +65,33 @@ class KpiPolicy extends BasePolicy
      */
     private const array MANUAL_ENTRY_ROLES = ['Ministry Attache', 'Ministry HQ Officer'];
 
+    /**
+     * FR-KPI-008/010/011, FR-SDT-016: the KPI dashboard — directors and the
+     * PS across every mission, the HRM&D Officer read-only across every
+     * mission (audit-logged), an attache for their own mission only.
+     */
+    private const array DASHBOARD_ROLES = ['Ministry HQ Director', 'Ministry PS', 'Acting PS', 'HRM&D Officer', 'Ministry Attache'];
+
+    /**
+     * API-001 Section 9, GET /kpi-actuals: the dashboard roles, plus the
+     * Ministry HQ Officer, who records manual actuals (FR-KPI-007) and needs
+     * to see what is already recorded.
+     */
+    private const array ACTUAL_READER_ROLES = [...self::DASHBOARD_ROLES, 'Ministry HQ Officer'];
+
     public function viewAny(User $user): bool
     {
-        return true;
+        return in_array($user->role?->name, self::ACTUAL_READER_ROLES, true);
     }
 
     public function view(User $user): bool
     {
-        return true;
+        return $this->viewAny($user);
+    }
+
+    public function viewDashboard(User $user): bool
+    {
+        return in_array($user->role?->name, self::DASHBOARD_ROLES, true);
     }
 
     /**
@@ -92,9 +114,27 @@ class KpiPolicy extends BasePolicy
         return AdministrationService::isSystemAdministrator($user) || AdministrationService::isMinistryAdministrator($user);
     }
 
+    /**
+     * API-001 Section 9, GET /kpi-profiles: the department's administrators
+     * manage profiles; the target setters read them, since a profile's
+     * defaults are what a mission override overrides (FR-KPI-003).
+     */
+    public function viewProfiles(User $user): bool
+    {
+        return $this->manageProfiles($user) || $this->setTarget($user);
+    }
+
     public function setTarget(User $user): bool
     {
         return in_array($user->role?->name, self::TARGET_SETTER_ROLES, true);
+    }
+
+    /**
+     * FR-KPI-004/005: the target plan and every target's version history.
+     */
+    public function viewTargets(User $user): bool
+    {
+        return $this->setTarget($user);
     }
 
     public function recordActual(User $user): bool
@@ -107,9 +147,13 @@ class KpiPolicy extends BasePolicy
         return in_array($user->role?->name, self::DIRECTOR_ROLES, true);
     }
 
+    /**
+     * FR-KPI-015, and API-001 Section 9 adds the HRM&D Officer (whose
+     * downloads are audit-logged, FR-KPI-011).
+     */
     public function generateReport(User $user): bool
     {
-        return in_array($user->role?->name, self::DIRECTOR_ROLES, true);
+        return in_array($user->role?->name, [...self::DIRECTOR_ROLES, 'HRM&D Officer'], true);
     }
 
     /**

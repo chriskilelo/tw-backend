@@ -34,4 +34,12 @@ class KpiProfile extends Model
     {
         return $this->hasMany(KpiProfileMission::class);
     }
+
+    /**
+     * FR-KPI-003: the profile's default targets, every version.
+     */
+    public function kpiProfileTargets(): HasMany
+    {
+        return $this->hasMany(KpiProfileTarget::class);
+    }
 }

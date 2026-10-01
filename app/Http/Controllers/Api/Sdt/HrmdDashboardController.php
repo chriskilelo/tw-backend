@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Models\KpiTarget;
 use App\Models\User;
 use App\Services\KpiService;
+use App\Support\KpiPeriod;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -30,7 +31,9 @@ class HrmdDashboardController extends Controller
         Gate::authorize('viewHrmdDashboard', KpiTarget::class);
 
         $cycleLabel = $request->string('cycle_label', '')->toString();
-        abort_if($cycleLabel === '', 422, 'cycle_label is required.');
+        if (! KpiPeriod::isLabel($cycleLabel)) {
+            return $this->respondWithErrors(['cycle_label must be a quarter (Q1 2026) or half-year (H1 2026).']);
+        }
 
         return $this->respondWithData($this->kpiService->hrmdDashboard($request->user(), $cycleLabel));
     }
@@ -49,7 +52,9 @@ class HrmdDashboardController extends Controller
         Gate::authorize('generateAttacheSummary', KpiTarget::class);
 
         $periodLabel = $request->string('period_label', '')->toString();
-        abort_if($periodLabel === '', 422, 'period_label is required.');
+        if (! KpiPeriod::isLabel($periodLabel)) {
+            return $this->respondWithErrors(['period_label must be a quarter (Q1 2026) or half-year (H1 2026).']);
+        }
 
         $officer = $request->user();
         $attache = User::query()->findOrFail($userId);
