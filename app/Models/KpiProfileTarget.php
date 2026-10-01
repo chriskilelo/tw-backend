@@ -3,19 +3,25 @@
 namespace App\Models;
 
 use App\Models\Concerns\HasMinistryScope;
-use Database\Factories\KpiTargetFactory;
+use Database\Factories\KpiProfileTargetFactory;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class KpiTarget extends Model
+/**
+ * FR-KPI-003: a KPI Profile's default target for one KPI and performance
+ * cycle, applied to every mission on the profile that has no
+ * mission-specific KpiTarget for that cycle. Versioned like KpiTarget
+ * (BR-019): rows are only ever inserted, and the latest one wins.
+ */
+class KpiProfileTarget extends Model
 {
-    /** @use HasFactory<KpiTargetFactory> */
+    /** @use HasFactory<KpiProfileTargetFactory> */
     use HasFactory, HasMinistryScope, HasUuids;
 
     protected $fillable = [
-        'mission_id',
+        'kpi_profile_id',
         'kpi_definition_id',
         'performance_cycle_label',
         'cycle_start_date',
@@ -24,6 +30,9 @@ class KpiTarget extends Model
         'set_by_user_id',
     ];
 
+    /**
+     * @return array<string, string>
+     */
     protected function casts(): array
     {
         return [
@@ -39,12 +48,12 @@ class KpiTarget extends Model
 
     public function ministryScopeRelation(): ?string
     {
-        return 'kpiDefinition';
+        return 'kpiProfile';
     }
 
-    public function mission(): BelongsTo
+    public function kpiProfile(): BelongsTo
     {
-        return $this->belongsTo(Mission::class);
+        return $this->belongsTo(KpiProfile::class);
     }
 
     public function kpiDefinition(): BelongsTo

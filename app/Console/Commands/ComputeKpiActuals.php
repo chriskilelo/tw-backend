@@ -2,51 +2,30 @@
 
 namespace App\Console\Commands;
 
-use App\Enums\InquiryStatus;
-use App\Enums\PeriodicReportStatus;
-use App\Models\Alert;
-use App\Models\Inquiry;
 use App\Models\KpiDefinition;
-use App\Models\Mission;
 use App\Models\MissionMinistryLink;
-use App\Models\PeriodicReport;
+use App\Services\KpiDataSources;
 use App\Services\KpiService;
 use App\Services\ReportService;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
-use Illuminate\Support\Carbon;
 
 /**
- * FR-KPI-006: for every active KPI Definition configured with
- * calculation_method = 'auto', computes the current quarter's value from
- * its data_source engine and persists it via KpiService::recordActual().
- * "Current quarter" here means the same quarter
+ * FR-KPI-006: for every active KPI Definition calculated live
+ * (calculation_method 'auto' with an App\Services\KpiDataSources key),
+ * snapshots the current quarter's value into kpi_actuals via
+ * KpiService::recordActual(). "Current quarter" is the quarter
  * ReportService::currentSubmissionPeriod() uses — the fiscal quarter most
- * recently ended, matching CLAUDE.md Section 8's "authoritative data
- * source: quarterly reports" convention, not the quarter still in
- * progress today.
+ * recently ended. The dashboards compute these KPIs live; the snapshot keeps
+ * a stored record of what each quarter closed at.
  *
- * Scheduled daily (routes/console.php) purely so "current quarter" tracks
- * today's date automatically; safe to re-run any number of times in the
- * same quarter, since recordActual() upserts on (mission, kpi, quarter)
- * rather than inserting a duplicate row each run.
- *
- * KNOWN GAP: this recognises a small, literal set of data_source keys
- * ('alerts.count_submitted', 'inquiries.count_closed',
- * 'inquiries.count_disputes_closed', 'reports.count_submitted') — the
- * exact style the session task described — rather than parsing arbitrary
- * free text. KpiDefinitionSeeder's 11 SDT KPIs actually store descriptive
- * prose in data_source ("Intelligence Alert Engine", "Periodic Report
- * Engine (Section 2 data)", etc.), not these keys, so none of them
- * currently auto-compute through this command. Flagging this drift rather
- * than silently guessing a text-to-engine mapping — a future session
- * needs to either re-seed data_source with one of the keys below (for the
- * three KPIs these keys can actually answer) or extend the recognised-key
- * list, and decide what a "Section 2 data"-sourced KPI (delegations
- * hosted, trade shows attended, forums participated in — all counted
- * from periodic_reports.report_data_rows content, not a simple table
- * count) would even mean as an auto-calculator.
+ * Scheduled daily (routes/console.php) and safe to re-run: recordActual()
+ * upserts on (mission, kpi, quarter). The counting itself lives in
+ * KpiDataSources, shared with the dashboards, so a snapshot always equals
+ * what the dashboards showed. The three Section 2 KPIs (forums, trade shows,
+ * delegations) are not countable — Section 2 is narrative — so they keep a
+ * descriptive data_source and are recorded by hand.
  */
 #[Signature('foams:compute-kpi-actuals')]
 #[Description("Computes and stores this quarter's actual value for every auto-calculated KPI definition with a recognised data_source (FR-KPI-006).")]
@@ -55,6 +34,7 @@ class ComputeKpiActuals extends Command
     public function __construct(
         private readonly KpiService $kpiService,
         private readonly ReportService $reportService,
+        private readonly KpiDataSources $dataSources,
     ) {
         parent::__construct();
     }
@@ -62,13 +42,12 @@ class ComputeKpiActuals extends Command
     public function handle(): int
     {
         $period = $this->reportService->currentSubmissionPeriod();
-        $calculators = $this->calculators();
 
         $definitions = KpiDefinition::query()
             ->withoutGlobalScopes()
             ->where('calculation_method', 'auto')
             ->where('active', true)
-            ->whereIn('data_source', array_keys($calculators))
+            ->whereIn('data_source', KpiDataSources::KEYS)
             ->get();
 
         if ($definitions->isEmpty()) {
@@ -80,8 +59,6 @@ class ComputeKpiActuals extends Command
         $computed = 0;
 
         foreach ($definitions as $definition) {
-            $calculator = $calculators[$definition->data_source];
-
             $missions = MissionMinistryLink::query()
                 ->where('ministry_id', $definition->ministry_id)
                 ->with('mission')
@@ -90,15 +67,21 @@ class ComputeKpiActuals extends Command
                 ->filter()
                 ->unique('id');
 
-            foreach ($missions as $mission) {
-                $value = $calculator($mission, $definition->ministry_id, $period['start'], $period['end']);
+            $counts = $this->dataSources->quarterlyCounts(
+                $definition->data_source,
+                $definition->ministry_id,
+                $missions->pluck('id')->all(),
+                $period['start'],
+                $period['end'],
+            );
 
+            foreach ($missions as $mission) {
                 $this->kpiService->recordActual(
                     $definition,
                     $mission,
                     $period['label'],
                     $period['start'],
-                    $value,
+                    $counts[$mission->id][$period['start']->toDateString()] ?? 0.0,
                     null,
                     'auto',
                 );
@@ -110,45 +93,5 @@ class ComputeKpiActuals extends Command
         $this->info("Computed {$computed} auto KPI actual(s) for {$period['label']}.");
 
         return self::SUCCESS;
-    }
-
-    /**
-     * @return array<string, callable(Mission, string, Carbon, Carbon): float>
-     */
-    private function calculators(): array
-    {
-        return [
-            'alerts.count_submitted' => fn (Mission $mission, string $ministryId, Carbon $start, Carbon $end): float => (float) Alert::query()
-                ->withoutGlobalScopes()
-                ->where('ministry_id', $ministryId)
-                ->where('mission_id', $mission->id)
-                ->whereBetween('created_at', [$start->copy()->startOfDay(), $end->copy()->endOfDay()])
-                ->count(),
-
-            'inquiries.count_closed' => fn (Mission $mission, string $ministryId, Carbon $start, Carbon $end): float => (float) Inquiry::query()
-                ->withoutGlobalScopes()
-                ->where('ministry_id', $ministryId)
-                ->where('mission_id', $mission->id)
-                ->where('status', InquiryStatus::Closed->value)
-                ->whereBetween('closed_at', [$start->copy()->startOfDay(), $end->copy()->endOfDay()])
-                ->count(),
-
-            'inquiries.count_disputes_closed' => fn (Mission $mission, string $ministryId, Carbon $start, Carbon $end): float => (float) Inquiry::query()
-                ->withoutGlobalScopes()
-                ->where('ministry_id', $ministryId)
-                ->where('mission_id', $mission->id)
-                ->where('status', InquiryStatus::Closed->value)
-                ->where('sub_type', 'dispute_or_complaint')
-                ->whereBetween('closed_at', [$start->copy()->startOfDay(), $end->copy()->endOfDay()])
-                ->count(),
-
-            'reports.count_submitted' => fn (Mission $mission, string $ministryId, Carbon $start, Carbon $end): float => (float) PeriodicReport::query()
-                ->withoutGlobalScopes()
-                ->where('ministry_id', $ministryId)
-                ->where('mission_id', $mission->id)
-                ->where('status', PeriodicReportStatus::Submitted->value)
-                ->whereBetween('submitted_at', [$start->copy()->startOfDay(), $end->copy()->endOfDay()])
-                ->count(),
-        ];
     }
 }

@@ -9,14 +9,15 @@ use App\Services\KpiService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use InvalidArgumentException;
 
 /**
- * FR-KPI-013, FR-SDT-011: the national comparison matrix — every
- * ministry-linked mission x every active KPI, for one cycle label.
- * Ministry HQ Director / Ministry PS / Acting PS only, see
- * KpiPolicy::viewComparison(). $ministryId is always the requesting
- * user's own ministry, never a client-supplied query parameter (CLAUDE.md
- * Section 10's ministry-scoping convention).
+ * FR-KPI-013, FR-SDT-011: the national comparison matrix — every active
+ * posting of the requesting user's department against every active KPI,
+ * for a quarter, a half-year (the default) or a custom range. Ministry HQ
+ * Director / Ministry PS / Acting PS only, see KpiPolicy::viewComparison().
+ * The department is always the requester's own, never a parameter (CLAUDE.md
+ * Section 10). `cycle_label` is still accepted as an alias of `period`.
  */
 class KpiComparisonController extends Controller
 {
@@ -28,11 +29,23 @@ class KpiComparisonController extends Controller
     {
         Gate::authorize('viewComparison', KpiTarget::class);
 
-        $cycleLabel = $request->string('cycle_label', '')->toString();
-        abort_if($cycleLabel === '', 422, 'cycle_label is required.');
+        try {
+            $period = $this->kpiService->resolvePeriod(
+                $request->query('period') ?? $request->query('cycle_label'),
+                $request->query('from'),
+                $request->query('to'),
+            );
+        } catch (InvalidArgumentException $e) {
+            return $this->respondWithErrors([$e->getMessage()]);
+        }
 
-        return $this->respondWithData(
-            $this->kpiService->buildComparisonMatrix($request->user()->ministry_id, $cycleLabel),
-        );
+        return $this->respondWithData([
+            ...$this->kpiService->comparison($request->user()->ministry_id, $period),
+            'options' => $this->kpiService->periodOptions(),
+            'can' => [
+                'set_targets' => Gate::allows('setTarget', KpiTarget::class),
+                'download_report' => Gate::allows('generateReport', KpiTarget::class),
+            ],
+        ]);
     }
 }

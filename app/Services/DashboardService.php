@@ -3,7 +3,6 @@
 namespace App\Services;
 
 use App\Enums\AlertStatus;
-use App\Enums\DirectiveStatus;
 use App\Enums\InquiryStatus;
 use App\Enums\PeriodicReportStatus;
 use App\Models\Alert;
@@ -298,13 +297,20 @@ class DashboardService
                 'summary' => $compliance['summary'],
                 'total' => count($compliance['missions']),
                 'attention' => collect($compliance['missions'])
-                    ->where('status', '!=', 'submitted_on_time')
-                    ->sortBy(fn (array $row): int => $row['status'] === 'not_yet_submitted' ? 0 : 1)
+                    ->where('status', '!=', PeriodicReport::COMPLIANCE_ON_TIME)
+                    ->sortBy(fn (array $row): int => match ($row['status']) {
+                        PeriodicReport::COMPLIANCE_NOT_STARTED => 0,
+                        PeriodicReport::COMPLIANCE_DRAFT => 1,
+                        default => 2,
+                    })
                     ->map(fn (array $row): array => [
                         'mission_id' => $row['mission_id'],
                         'mission_name' => $row['mission_name'],
                         'status' => $row['status'],
                         'submitted_at' => $row['submitted_at']?->toIso8601String(),
+                        'report_id' => $row['report_id'],
+                        'is_overdue' => $row['is_overdue'],
+                        'days_overdue' => $row['days_overdue'],
                     ])
                     ->values()
                     ->all(),
@@ -752,16 +758,18 @@ class DashboardService
         }
     }
 
+    /**
+     * Delegates to the Directive model's single derived-flag implementation
+     * so the dashboards agree with the Directives module.
+     */
     private function isOverdue(Directive $directive): bool
     {
-        return $directive->target_completion_date !== null && $directive->target_completion_date->lt(Carbon::today());
+        return $directive->isOverdue();
     }
 
     private function isStale(Directive $directive): bool
     {
-        return $directive->status === DirectiveStatus::InProgress
-            && $directive->last_progress_update_at !== null
-            && $directive->last_progress_update_at->lt(now()->subDays(DirectiveService::STALE_THRESHOLD_DAYS));
+        return $directive->isStale();
     }
 
     /**

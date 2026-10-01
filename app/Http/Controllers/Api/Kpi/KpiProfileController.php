@@ -12,10 +12,14 @@ use App\Services\KpiService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use InvalidArgumentException;
 
 /**
- * FR-KPI-002 (KPI Profiles, mission grouping). System Administrator only,
- * including GET — see KpiPolicy::manageProfiles().
+ * FR-KPI-002 (KPI Profiles, mission grouping). Managed by the System
+ * Administrator and the department's Ministry Administrator
+ * (KpiPolicy::manageProfiles()); read also by the target setters, since a
+ * profile's defaults are what a mission target overrides
+ * (KpiPolicy::viewProfiles(), FR-KPI-003).
  */
 class KpiProfileController extends Controller
 {
@@ -25,7 +29,7 @@ class KpiProfileController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        Gate::authorize('manageProfiles', KpiProfile::class);
+        Gate::authorize('viewProfiles', KpiProfile::class);
 
         $profiles = KpiProfile::query()
             ->with(['kpiProfileDefinitions.kpiDefinition', 'kpiProfileMissions.mission'])
@@ -40,7 +44,11 @@ class KpiProfileController extends Controller
     {
         Gate::authorize('manageProfiles', KpiProfile::class);
 
-        $profile = $this->kpiService->createProfile($request->validated(), $request->user());
+        try {
+            $profile = $this->kpiService->createProfile($request->validated(), $request->user());
+        } catch (InvalidArgumentException $e) {
+            return $this->respondWithErrors([$e->getMessage()]);
+        }
 
         return $this->respondWithData(
             new KpiProfileResource($profile->load(['kpiProfileDefinitions.kpiDefinition', 'kpiProfileMissions.mission'])),
@@ -52,11 +60,15 @@ class KpiProfileController extends Controller
     {
         Gate::authorize('manageProfiles', KpiProfile::class);
 
-        $this->kpiService->assignProfileToMissions(
-            $kpiProfile,
-            $request->validated('mission_ids'),
-            $request->user(),
-        );
+        try {
+            $this->kpiService->assignProfileToMissions(
+                $kpiProfile,
+                $request->validated('mission_ids'),
+                $request->user(),
+            );
+        } catch (InvalidArgumentException $e) {
+            return $this->respondWithErrors([$e->getMessage()]);
+        }
 
         return $this->respondWithData(
             new KpiProfileResource($kpiProfile->fresh(['kpiProfileDefinitions.kpiDefinition', 'kpiProfileMissions.mission'])),
