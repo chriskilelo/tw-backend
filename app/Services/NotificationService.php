@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Jobs\SendAlertRoutingNotification;
+use App\Jobs\SendDirectiveDueReminder;
 use App\Jobs\SendDirectiveIssuedNotification;
 use App\Jobs\SendDirectiveStaleReminder;
 use App\Jobs\SendReportDeadlineReminder;
@@ -29,7 +30,9 @@ class NotificationService
         'alert_routed' => SendAlertRoutingNotification::class,
         'directive_issued' => SendDirectiveIssuedNotification::class,
         'directive_stale' => SendDirectiveStaleReminder::class,
+        'directive_due_reminder' => SendDirectiveDueReminder::class,
         'report_deadline_reminder' => SendReportDeadlineReminder::class,
+        'report_overdue' => SendReportDeadlineReminder::class,
     ];
 
     public function notify(User $recipient, string $triggerType, string $message, ?string $link = null): void

@@ -7,7 +7,10 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
- * List/summary shape for GET /directives (FR-DIR-005, FR-DIR-009).
+ * List/summary shape for GET /directives (FR-DIR-005, FR-DIR-009), the
+ * POST /directives response and the SDT overview rows. The flags come from
+ * the Directive model's single derived-flag implementation (FR-DIR-003,
+ * FR-DIR-010).
  *
  * @mixin Directive
  */
@@ -37,7 +40,12 @@ class DirectiveResource extends JsonResource
                 'id' => $this->issuedBy->id,
                 'full_name' => $this->issuedBy->full_name,
             ]),
+            'is_overdue' => $this->isOverdue(),
+            'is_stale' => $this->isStale(),
+            'due_state' => $this->dueState(),
+            'days_until_due' => $this->daysUntilDue(),
             'created_at' => $this->created_at,
+            'updated_at' => $this->updated_at,
         ];
     }
 }
