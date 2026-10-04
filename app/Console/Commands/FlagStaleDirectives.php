@@ -9,15 +9,15 @@ use Illuminate\Console\Command;
 
 /**
  * FR-DIR-010, CLAUDE.md Section 8 Stale Directive Threshold: scheduled
- * daily (routes/console.php); DirectiveService::flagStaleDirectives()
- * itself re-queries in_progress directives with no progress update in the
- * last 14 days on every run, so a directive updated between two scheduled
- * runs simply stops appearing in the next run's stale list — same
- * mechanism as SendReportReminders (Session 26), no separate queued-job
- * cancellation is needed.
+ * daily (routes/console.php). DirectiveService::flagStaleDirectives()
+ * re-queries open directives with no progress in the last 14 days on every
+ * run and notifies the target attache and the issuer once per stale
+ * episode; a progress update starts a new episode, and a directive updated
+ * between two runs simply stops matching (same mechanism as
+ * SendReportReminders).
  */
 #[Signature('directive:flag-stale')]
-#[Description('Sends a stale-progress reminder for every in_progress directive with no update in the configured threshold (FR-DIR-010).')]
+#[Description('Notifies the target and issuer of every open directive with no progress update in the configured threshold, once per stale episode (FR-DIR-010).')]
 class FlagStaleDirectives extends Command
 {
     public function __construct(private readonly DirectiveService $directiveService)
@@ -27,9 +27,9 @@ class FlagStaleDirectives extends Command
 
     public function handle(): int
     {
-        $this->directiveService->flagStaleDirectives();
+        $sent = $this->directiveService->flagStaleDirectives();
 
-        $this->info('Stale directive reminders dispatched.');
+        $this->info("Stale directive reminders sent: {$sent}.");
 
         return self::SUCCESS;
     }

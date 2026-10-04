@@ -6,6 +6,7 @@ use App\Jobs\SendDirectiveStaleReminder;
 use App\Models\Directive;
 use App\Models\Ministry;
 use App\Models\Mission;
+use App\Models\MissionMinistryLink;
 use App\Models\Role;
 use App\Models\User;
 use Illuminate\Support\Facades\Queue;
@@ -57,6 +58,7 @@ it('lets a Ministry HQ Officer issue a directive and notifies the target attache
 
     $ministry = Ministry::factory()->create();
     $mission = Mission::factory()->create();
+    MissionMinistryLink::factory()->create(['mission_id' => $mission->id, 'ministry_id' => $ministry->id]);
     $officer = directiveHqOfficer($ministry);
     $attache = directiveMinistryAttache($ministry, $mission);
 
@@ -145,7 +147,7 @@ it('completes a directive with a completion summary', function () {
     ]);
 });
 
-it('dispatches a stale reminder for a directive with no progress update in 15 days (TC-FR-DIR-010)', function () {
+it('dispatches a stale reminder to the target and the issuer for a directive with no progress update in 15 days (TC-FR-DIR-010)', function () {
     Queue::fake();
 
     $ministry = Ministry::factory()->create();
@@ -177,7 +179,8 @@ it('dispatches a stale reminder for a directive with no progress update in 15 da
     ]);
 
     Queue::assertPushed(SendDirectiveStaleReminder::class, fn ($job) => $job->email === $attache->email);
-    Queue::assertPushed(SendDirectiveStaleReminder::class, 1);
+    Queue::assertPushed(SendDirectiveStaleReminder::class, fn ($job) => $job->email === $officer->email);
+    Queue::assertPushed(SendDirectiveStaleReminder::class, 2);
 
     expect($freshDirective->fresh())->not->toBeNull();
 });
