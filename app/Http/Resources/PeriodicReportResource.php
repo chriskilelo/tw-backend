@@ -3,13 +3,18 @@
 namespace App\Http\Resources;
 
 use App\Models\PeriodicReport;
+use App\Services\ReportService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
- * POST /periodic-reports, GET /periodic-reports/{id}: full report detail
- * with its sections and, for structured_table sections, their data rows
- * (API-001, FR-RPT-003 to 011).
+ * GET /periodic-reports list rows (FR-RPT-017): the report's period, status
+ * and the derived timeliness flags — deadline, days overdue (FR-RPT-016 AC1)
+ * and the FR-RPT-018 compliance status — computed once, on the model, so
+ * the list, the detail page and the compliance dashboard agree. When the
+ * sections are loaded (an attache's own list) each row also carries its
+ * section progress (FR-RPT-013). PeriodicReportDetailResource extends this
+ * with the sections themselves.
  *
  * @mixin PeriodicReport
  */
@@ -20,39 +25,38 @@ class PeriodicReportResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
+        $sectionsLoaded = $this->relationLoaded('sections');
+
         return [
             'id' => $this->id,
             'reporting_period_label' => $this->reporting_period_label,
-            'period_start_date' => $this->period_start_date,
-            'period_end_date' => $this->period_end_date,
+            'period_start_date' => $this->period_start_date?->toDateString(),
+            'period_end_date' => $this->period_end_date?->toDateString(),
             'template_version' => $this->template_version,
             'status' => $this->status,
             'submitted_at' => $this->submitted_at,
             'is_late' => $this->is_late,
-            'mission' => $this->whenLoaded('mission', fn () => [
+            'deadline' => $this->deadline()->toDateString(),
+            'days_to_deadline' => $this->daysToDeadline(),
+            'is_overdue' => $this->isOverdue(),
+            'days_overdue' => $this->daysOverdue(),
+            'compliance_status' => $this->complianceStatus(),
+            'mission' => $this->whenLoaded('mission', fn () => $this->mission === null ? null : [
                 'id' => $this->mission->id,
                 'name' => $this->mission->name,
+                'city' => $this->mission->city,
+                'host_country' => $this->mission->host_country,
             ]),
-            'authored_by' => $this->whenLoaded('authoredBy', fn () => [
+            'ministry' => $this->whenLoaded('ministry', fn () => $this->ministry === null ? null : [
+                'id' => $this->ministry->id,
+                'name' => $this->ministry->name,
+            ]),
+            'authored_by' => $this->whenLoaded('authoredBy', fn () => $this->authoredBy === null ? null : [
                 'id' => $this->authoredBy->id,
                 'full_name' => $this->authoredBy->full_name,
             ]),
-            'sections' => $this->whenLoaded('sections', fn () => $this->sections->map(fn ($section) => [
-                'id' => $section->id,
-                'report_template_section_id' => $section->report_template_section_id,
-                'section_title' => $section->relationLoaded('reportTemplateSection') ? $section->reportTemplateSection->section_title : null,
-                'section_type' => $section->relationLoaded('reportTemplateSection') ? $section->reportTemplateSection->section_type : null,
-                'section_order' => $section->relationLoaded('reportTemplateSection') ? $section->reportTemplateSection->section_order : null,
-                'column_schema' => $section->relationLoaded('reportTemplateSection') ? $section->reportTemplateSection->column_schema : null,
-                'guidance_text' => $section->relationLoaded('reportTemplateSection') ? $section->reportTemplateSection->guidance_text : null,
-                'content' => $section->content,
-                'data_rows' => $section->relationLoaded('dataRows') ? $section->dataRows->sortBy('row_order')->values()->map(fn ($row) => [
-                    'id' => $row->id,
-                    'row_order' => $row->row_order,
-                    'row_data' => $row->row_data,
-                ]) : null,
-                'updated_at' => $section->updated_at,
-            ])),
+            'progress' => $this->when($sectionsLoaded, fn () => app(ReportService::class)->progressOf($this->sections)),
+            'last_edited_at' => $this->when($sectionsLoaded, fn () => collect([$this->updated_at, ...$this->sections->pluck('updated_at')])->filter()->max()),
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
         ];

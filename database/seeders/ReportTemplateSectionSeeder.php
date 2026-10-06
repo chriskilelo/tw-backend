@@ -17,7 +17,7 @@ class ReportTemplateSectionSeeder extends Seeder
      * Asset Register and AIE Allocations schemas in CLAUDE.md Section 8;
      * guidance_text is taken verbatim from that section's "Notes" column.
      *
-     * @var array<int, array{title: string, type: string, guidance: ?string, schema: ?array}>
+     * @var array<int, array{title: string, type: string, guidance: ?string, schema: ?array, config?: array<string, mixed>}>
      */
     protected array $sections = [
         ['title' => 'Introduction', 'type' => 'narrative', 'guidance' => 'Outline, background, objectives, limitations/assumptions', 'schema' => null],
@@ -49,6 +49,21 @@ class ReportTemplateSectionSeeder extends Seeder
                 ['name' => 'Quarter Allocation', 'type' => 'numeric', 'mandatory' => true],
                 ['name' => 'Deficit/Surplus', 'type' => 'numeric', 'mandatory' => false],
                 ['name' => 'Remarks', 'type' => 'text', 'mandatory' => false],
+            ],
+            // TW-URD-D Section 2.3: the budget codes are pre-populated from the
+            // aie_budget_code master data (FR-RPT-008) and the TOTAL row is
+            // auto-calculated over the budget lines (FR-RPT-009).
+            'config' => [
+                'prepopulate' => [
+                    'master_data_category' => 'aie_budget_code',
+                    'label_columns' => ['Budget Code', 'Head Description'],
+                ],
+                'total' => [
+                    'label' => 'TOTAL',
+                    'label_column' => 'Head Description',
+                    'sum_columns' => ['Quarter Allocation', 'Deficit/Surplus'],
+                    'exclude_labels' => ['Bank Account Balance'],
+                ],
             ],
         ],
         ['title' => 'Conclusion', 'type' => 'narrative', 'guidance' => 'Summary of key issues', 'schema' => null],
@@ -90,6 +105,7 @@ class ReportTemplateSectionSeeder extends Seeder
                 'section_title' => $section['title'],
                 'section_type' => $section['type'],
                 'column_schema' => $section['schema'] ? json_encode($section['schema']) : null,
+                'table_config' => isset($section['config']) ? json_encode($section['config']) : null,
                 'guidance_text' => $section['guidance'],
                 'created_at' => now(),
                 'updated_at' => now(),

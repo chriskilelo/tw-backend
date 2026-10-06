@@ -37,12 +37,14 @@ export const options = {
   },
 };
 
-// Fixed, deliberately synthetic reporting period so repeat runs of this
-// script hit the same BR-007 draft row instead of accumulating a new one
-// per run; the idempotent lookup below handles the second-run 422.
-const PERIOD_LABEL = 'LOAD-TEST-REPORT-FORM';
-const PERIOD_START = '2026-07-01';
-const PERIOD_END = '2026-09-30';
+// Fixed reporting period so repeat runs of this script hit the same BR-007
+// draft row instead of accumulating a new one per run; the idempotent lookup
+// below handles the second-run 422. It must be a real quarter that has begun
+// (FR-RPT-003 validation), and one long past, so it never lands on (and
+// auto-saves into) a mission's genuine current-quarter draft.
+const PERIOD_LABEL = 'Q1 2001';
+const PERIOD_START = '2001-07-01';
+const PERIOD_END = '2001-09-30';
 
 let target = null; // { reportId, sectionId }, populated once per VU
 
@@ -51,10 +53,10 @@ function firstNarrativeSection(report) {
 }
 
 /**
- * Creates this VU's draft report on first use; if one already exists for
- * this mission + period (BR-007 unique index -> 422 on a repeat run),
- * looks it up instead via the index endpoint (Ministry Attache list
- * requests are always locked to their own mission, PeriodicReportController::index()).
+ * Creates this VU's draft report on first use. On a repeat run the mission
+ * already has one for this period (BR-007 unique index): the 422 names it in
+ * `data.existing_report`, and the index endpoint (an attache sees only their
+ * own mission's reports) is the fallback lookup.
  */
 function ensureDraftReportTarget() {
   const createRes = authedWrite(
@@ -75,16 +77,21 @@ function ensureDraftReportTarget() {
     return { reportId: report.id, sectionId: section.id };
   }
 
-  const listRes = authedGet('/api/v1/periodic-reports?per_page=100', 'report-list');
-  const existing = listRes
-    .json('data')
-    .find((r) => r.period_start_date.startsWith(PERIOD_START));
+  let existingId = createRes.status === 422 ? createRes.json('data.existing_report.id') : null;
 
-  if (!existing) {
+  if (!existingId) {
+    const listRes = authedGet(`/api/v1/periodic-reports?period=${encodeURIComponent(PERIOD_LABEL)}&per_page=100`, 'report-list');
+    const existing = listRes
+      .json('data')
+      .find((r) => r.period_start_date.startsWith(PERIOD_START));
+    existingId = existing ? existing.id : null;
+  }
+
+  if (!existingId) {
     throw new Error('Could not create or locate a draft report for this mission/period');
   }
 
-  const showRes = authedGet(`/api/v1/periodic-reports/${existing.id}`, 'report-show');
+  const showRes = authedGet(`/api/v1/periodic-reports/${existingId}`, 'report-show');
   const report = showRes.json('data');
   const section = firstNarrativeSection(report);
 
