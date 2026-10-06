@@ -20,6 +20,7 @@ use App\Http\Controllers\Api\Governance\MissionActivityController;
 use App\Http\Controllers\Api\Inquiries\InquiryController;
 use App\Http\Controllers\Api\Kpi\KpiActualController;
 use App\Http\Controllers\Api\Kpi\KpiComparisonController;
+use App\Http\Controllers\Api\Kpi\KpiDashboardController;
 use App\Http\Controllers\Api\Kpi\KpiDefinitionController;
 use App\Http\Controllers\Api\Kpi\KpiProfileController;
 use App\Http\Controllers\Api\Kpi\KpiReportController;
@@ -180,17 +181,19 @@ Route::prefix('v1')->group(function (): void {
             Route::post('/{inquiry}/referrals', [ReferralController::class, 'store']);
         });
 
-        // Layer 2 engine: Directive and Tasking (FR-DIR-002 to 013).
+        // Layer 2 engine: Directive and Tasking (FR-DIR-002 to 014).
         // ministry.scope binds current_ministry_id so the Directive
         // model's global scope filters every query (CLAUDE.md Section 4,
-        // Rule 1; NFR-SEC-006). '/summary' must be registered before
-        // '/{directive}' so it is never swallowed by that wildcard (same
-        // precedent as periodic-reports' '/compliance').
+        // Rule 1; NFR-SEC-006). '/summary' and '/assignees' must be
+        // registered before '/{directive}' so they are never swallowed by
+        // that wildcard (same precedent as periodic-reports' '/compliance').
         Route::prefix('directives')->middleware('ministry.scope')->group(function (): void {
             Route::get('/', [DirectiveController::class, 'index']);
             Route::get('/summary', [DirectiveController::class, 'summary']);
+            Route::get('/assignees', [DirectiveController::class, 'assignees']);
             Route::post('/', [DirectiveController::class, 'store']);
             Route::get('/{directive}', [DirectiveController::class, 'show']);
+            Route::patch('/{directive}', [DirectiveController::class, 'revise']);
             Route::patch('/{directive}/status', [DirectiveController::class, 'updateStatus']);
             Route::post('/{directive}/notes', [DirectiveController::class, 'storeNote']);
         });
@@ -224,15 +227,20 @@ Route::prefix('v1')->group(function (): void {
         // Session 25/26: FR-RPT-003 to 011, 014, 016, 018 (Periodic Report
         // Engine). ministry.scope binds current_ministry_id so the
         // PeriodicReport model's global scope filters every query
-        // (CLAUDE.md Section 4, Rule 1; NFR-SEC-006). '/compliance' must be
-        // registered before '/{periodicReport}' so it is never swallowed by
-        // that wildcard.
+        // (CLAUDE.md Section 4, Rule 1; NFR-SEC-006). '/compliance' and
+        // '/periods' must be registered before '/{periodicReport}' so they
+        // are never swallowed by that wildcard. The section auto-save is
+        // rate limited per user (report-autosave, AppServiceProvider)
+        // instead of silently dropping saves.
         Route::prefix('periodic-reports')->middleware('ministry.scope')->group(function (): void {
             Route::get('/', [PeriodicReportController::class, 'index']);
             Route::get('/compliance', [PeriodicReportController::class, 'compliance']);
+            Route::get('/periods', [PeriodicReportController::class, 'periods']);
             Route::post('/', [PeriodicReportController::class, 'store']);
             Route::get('/{periodicReport}', [PeriodicReportController::class, 'show']);
-            Route::patch('/{periodicReport}/sections/{section}', [PeriodicReportController::class, 'updateSection']);
+            Route::delete('/{periodicReport}', [PeriodicReportController::class, 'destroy']);
+            Route::patch('/{periodicReport}/sections/{section}', [PeriodicReportController::class, 'updateSection'])
+                ->middleware('throttle:report-autosave');
             Route::post('/{periodicReport}/data-rows', [PeriodicReportController::class, 'storeDataRow']);
             Route::delete('/{periodicReport}/data-rows/{dataRow}', [PeriodicReportController::class, 'destroyDataRow']);
             Route::post('/{periodicReport}/carry-forward', [PeriodicReportController::class, 'carryForward']);
@@ -258,6 +266,9 @@ Route::prefix('v1')->group(function (): void {
         });
 
         Route::prefix('kpi-targets')->middleware('ministry.scope')->group(function (): void {
+            Route::get('/plan', [KpiTargetController::class, 'plan']);
+            Route::get('/history', [KpiTargetController::class, 'history']);
+            Route::post('/batch', [KpiTargetController::class, 'batch']);
             Route::post('/', [KpiTargetController::class, 'store']);
         });
 
@@ -269,7 +280,15 @@ Route::prefix('v1')->group(function (): void {
         // guard treats as KPI-scoped ("api/v1/kpi-*").
         Route::prefix('kpi-actuals')->middleware('ministry.scope')->group(function (): void {
             Route::get('/', [KpiActualController::class, 'index']);
+            Route::get('/entry', [KpiActualController::class, 'entry']);
             Route::post('/', [KpiActualController::class, 'store']);
+        });
+
+        // FR-KPI-008 to 011, 016: the KPI dashboard (one mission, or the
+        // whole department). Also under "kpi-*", so an HRM&D Officer
+        // reaches it past MinistryScope's FR-SDT-018 guard.
+        Route::prefix('kpi-dashboard')->middleware('ministry.scope')->group(function (): void {
+            Route::get('/', [KpiDashboardController::class, 'show']);
         });
 
         Route::prefix('kpi-comparison')->middleware('ministry.scope')->group(function (): void {
@@ -292,10 +311,12 @@ Route::prefix('v1')->group(function (): void {
 
         // FR-MFA-001 to 003: read-only, aggregate-only cross-mission,
         // cross-ministry counts for MFA HQ Officer / MFA Principal
-        // Secretary. See App\Policies\MissionPolicy and
+        // Secretary, plus the metadata-only submission log (FR-MFA-001
+        // AC2). See App\Policies\MissionPolicy and
         // App\Services\GovernanceService.
         Route::prefix('mfa-awareness')->group(function (): void {
             Route::get('/', [MfaAwarenessController::class, 'index']);
+            Route::get('/submissions', [MfaAwarenessController::class, 'submissions']);
             Route::get('/missions/{mission}', [MfaAwarenessController::class, 'missionSummary']);
             Route::get('/national-overview', [MfaAwarenessController::class, 'nationalOverview']);
         });

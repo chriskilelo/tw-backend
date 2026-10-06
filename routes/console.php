@@ -3,6 +3,7 @@
 use App\Console\Commands\ComputeKpiActuals;
 use App\Console\Commands\FlagStaleDirectives;
 use App\Console\Commands\PurgeExpiredPii;
+use App\Console\Commands\SendDirectiveDueReminders;
 use App\Console\Commands\SendReportReminders;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
@@ -19,7 +20,13 @@ Artisan::command('inspire', function () {
 Schedule::command(SendReportReminders::class)->dailyAt('08:00');
 
 // FR-DIR-010, CLAUDE.md Section 8 Stale Directive Threshold (14 days).
+// Notifies target and issuer once per stale episode.
 Schedule::command(FlagStaleDirectives::class)->dailyAt('08:15');
+
+// FR-DIR-004, CLAUDE.md Section 8 Reminder Schedule: the command sends
+// only on the two lead times (7 and 3 days before the target completion
+// date), so it runs daily to catch them as they occur.
+Schedule::command(SendDirectiveDueReminders::class)->dailyAt('08:30');
 
 // FR-KPI-006: recomputes every auto-calculated KPI's current-quarter
 // actual daily so it always reflects live data; safe to re-run any number

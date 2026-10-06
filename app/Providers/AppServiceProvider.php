@@ -10,6 +10,7 @@ use App\Models\Inquiry;
 use App\Models\KpiActual;
 use App\Models\KpiDefinition;
 use App\Models\KpiProfile;
+use App\Models\KpiProfileTarget;
 use App\Models\KpiTarget;
 use App\Models\MasterDataEntry;
 use App\Models\Mission;
@@ -83,6 +84,13 @@ class AppServiceProvider extends ServiceProvider
             (int) config('auth.login_throttle_per_minute', 5),
         )->by($request->ip()));
 
+        // FR-RPT-006: report section auto-save. The editor debounces to
+        // well under this; the cap only stops a runaway client. A refused
+        // save answers 429 and the client retries — unlike the earlier
+        // silent 5-second drop, nothing is ever lost.
+        RateLimiter::for('report-autosave', fn (Request $request) => Limit::perMinute(240)
+            ->by($request->user()?->id ?: $request->ip()));
+
         // ReferralPolicy governs both ReferralEntry and ReferralOrganisation
         // (Session 12); neither model's name matches the policy's name, so
         // Laravel's convention-based auto-discovery would not find it.
@@ -103,6 +111,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(KpiDefinition::class, KpiPolicy::class);
         Gate::policy(KpiProfile::class, KpiPolicy::class);
         Gate::policy(KpiTarget::class, KpiPolicy::class);
+        Gate::policy(KpiProfileTarget::class, KpiPolicy::class);
         Gate::policy(KpiActual::class, KpiPolicy::class);
 
         // Session 09 task 2: generic created/updated/deleted audit trail.
@@ -125,6 +134,7 @@ class AppServiceProvider extends ServiceProvider
             KpiDefinition::class,
             KpiProfile::class,
             KpiTarget::class,
+            KpiProfileTarget::class,
             KpiActual::class,
             // ADR-006 / FR-AUDIT-006: department configuration and PS approval
             // changes, previously unaudited, now that a Ministry Administrator

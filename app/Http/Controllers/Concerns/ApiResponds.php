@@ -26,10 +26,13 @@ trait ApiResponds
     }
 
     /**
+     * $data carries anything the client needs to recover from the error
+     * (e.g. the existing report a duplicate draft should open instead).
+     *
      * @param  array<int, string>  $errors
      */
-    protected function respondWithErrors(array $errors, int $status = 422): JsonResponse
+    protected function respondWithErrors(array $errors, int $status = 422, mixed $data = null): JsonResponse
     {
-        return response()->json(['data' => null, 'errors' => $errors], $status);
+        return response()->json(['data' => $data, 'errors' => $errors], $status);
     }
 }
