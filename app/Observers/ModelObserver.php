@@ -13,29 +13,47 @@ use Illuminate\Support\Str;
  * a constructor dependency, since Eloquent boots observers into the
  * container very early and a constructor-injected service risks resolving
  * before the rest of the container is ready (session 09 task 3).
+ *
+ * Every entry's `changes` payload is written as `{before, after}`. On update
+ * this is the FULL record on both sides (not only the changed fields) so
+ * the audit trail can render a complete before/after comparison, with the
+ * frontend left to highlight whichever fields actually differ. `updated()`
+ * reads old values via getOriginal() — reliable only because Eloquent's
+ * performUpdate() calls syncChanges() before firing the 'updated' event but
+ * defers syncOriginal() until after 'saved', so getOriginal() still holds
+ * the pre-save value at this point.
  */
 class ModelObserver
 {
     public function created(Model $model): void
     {
-        $this->log($model, 'created', $this->redact($model, $model->getAttributes()));
+        $this->log($model, 'created', [
+            'before' => null,
+            'after' => $this->redact($model, $model->getAttributes()),
+        ]);
     }
 
     public function updated(Model $model): void
     {
-        $changes = $this->redact($model, $model->getChanges());
-        unset($changes['updated_at']);
+        $dirty = $model->getChanges();
+        unset($dirty['updated_at']);
 
-        if ($changes === []) {
+        if ($dirty === []) {
             return;
         }
 
-        $this->log($model, 'updated', $changes);
+        $this->log($model, 'updated', [
+            'before' => $this->redact($model, $model->getOriginal()),
+            'after' => $this->redact($model, $model->getAttributes()),
+        ]);
     }
 
     public function deleted(Model $model): void
     {
-        $this->log($model, 'deleted', null);
+        $this->log($model, 'deleted', [
+            'before' => $this->redact($model, $model->getAttributes()),
+            'after' => null,
+        ]);
     }
 
     /**

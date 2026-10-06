@@ -39,17 +39,19 @@ class QaTestAccountSeeder extends Seeder
 
         $this->account('attache.london@tradewatch.go.ke', 'QA Attache London', 'Ministry Attache', $sdt->id, $london->id, $password);
         $this->account('ps@tradewatch.go.ke', 'QA Ministry PS', 'Ministry PS', $sdt->id, null, $password);
-        $this->account('hom@tradewatch.go.ke', 'QA Head of Mission', 'Head of Mission', $sdt->id, $london->id, $password);
-        $this->account('dhom@tradewatch.go.ke', 'QA Deputy Head of Mission', 'Deputy Head of Mission', $sdt->id, $london->id, $password);
+        // TW-ARCH-001 Section 8.1: mission-governance roles carry a mission but
+        // no department; they oversee every department posted to the mission.
+        $this->account('hom@tradewatch.go.ke', 'QA Head of Mission', 'Head of Mission', null, $london->id, $password);
+        $this->account('dhom@tradewatch.go.ke', 'QA Deputy Head of Mission', 'Deputy Head of Mission', null, $london->id, $password);
         $this->account('mfahq@tradewatch.go.ke', 'QA MFA HQ Officer', 'MFA HQ Officer', null, null, $password);
         $this->account('mfaps@tradewatch.go.ke', 'QA MFA Principal Secretary', 'MFA Principal Secretary', null, null, $password);
         $this->account('sysadmin@tradewatch.go.ke', 'QA System Administrator', 'System Administrator', null, null, $password);
         $this->account('synthetic.attache@tradewatch.go.ke', 'QA Synthetic Attache', 'Ministry Attache', $synthetic->id, $berlin->id, $password);
         $this->account('director@tradewatch.go.ke', 'QA Director External Trade', 'Ministry HQ Officer', $sdt->id, null, $password);
         $this->account('hqdirector@tradewatch.go.ke', 'QA Ministry HQ Director', 'Ministry HQ Director', $sdt->id, null, $password);
-        // ADR-006: one Ministry Administrator per department, so the isolation
-        // specs can prove neither sees the other's users or configuration.
-        $this->account('ministryadmin@tradewatch.go.ke', 'QA Ministry Administrator', 'Ministry Administrator', $sdt->id, null, $password);
+        // ADR-006: the synthetic ministry's Ministry Administrator. SDT's side of
+        // the isolation specs signs in as DemoRosterSeeder's Patrice Mutua instead,
+        // since a QA fixture here would push SDT past BR-028's cap of three.
         $this->account('synthetic.ministryadmin@tradewatch.go.ke', 'QA Synthetic Ministry Administrator', 'Ministry Administrator', $synthetic->id, null, $password);
     }
 

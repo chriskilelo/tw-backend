@@ -7,6 +7,7 @@ use App\Jobs\SendAccountActivationEmail;
 use App\Models\Ministry;
 use App\Models\Role;
 use App\Models\User;
+use App\Policies\BasePolicy;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Password;
 use InvalidArgumentException;
@@ -78,6 +79,34 @@ class AdministrationService
         return self::isMinistryAdministrator($actor)
             && $ministryId !== null
             && $actor->ministry_id === $ministryId;
+    }
+
+    /**
+     * The four BR-020 governance roles (Head and Deputy Head of Mission, MFA
+     * HQ Officer, MFA Principal Secretary) are Ministry of Foreign and
+     * Diaspora Affairs officers, never a department's accounts (TW-ARCH-001
+     * Section 8.1, "Ministry-Specific: No"), and a Ministry Administrator may
+     * not assign them (FR-AUTH-021 AC2).
+     */
+    public static function isMissionGovernanceAccount(?User $user): bool
+    {
+        return in_array($user?->role?->name, BasePolicy::READ_ONLY_ROLES, true);
+    }
+
+    /**
+     * Whether $actor administers $target's account at all: every account for
+     * a System Administrator; for a Ministry Administrator, its own
+     * department's accounts other than a governance account, whatever that
+     * account's ministry_id holds (FR-AUTH-021 AC2, BR-025).
+     */
+    public static function canAdministerAccount(User $actor, User $target): bool
+    {
+        if (self::isSystemAdministrator($actor)) {
+            return true;
+        }
+
+        return self::canAdministerMinistry($actor, $target->ministry_id)
+            && ! self::isMissionGovernanceAccount($target);
     }
 
     /**

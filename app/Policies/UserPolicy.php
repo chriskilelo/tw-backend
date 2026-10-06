@@ -11,7 +11,9 @@ use App\Services\AdministrationService;
  * A System Administrator manages every account. A Ministry Administrator
  * manages accounts in its own department only, and never an administrator
  * account (its own included) — those are reserved to the System
- * Administrator (BR-028). Admin\UserController returns 404 before reaching
+ * Administrator (BR-028) — nor a mission-governance account (Head or Deputy
+ * Head of Mission, the MFA roles), which no department owns even when an
+ * account was given a ministry_id (FR-AUTH-021 AC2). Admin\UserController returns 404 before reaching
  * this policy when the target is outside the actor's department, so the
  * existence of other departments' accounts is never confirmed.
  *
@@ -41,7 +43,7 @@ class UserPolicy extends BasePolicy
 
     public function view(User $user, User $model): bool
     {
-        return AdministrationService::canAdministerMinistry($user, $model->ministry_id);
+        return AdministrationService::canAdministerAccount($user, $model);
     }
 
     public function create(User $user): bool
@@ -80,7 +82,7 @@ class UserPolicy extends BasePolicy
             return true;
         }
 
-        return AdministrationService::canAdministerMinistry($user, $model->ministry_id)
+        return AdministrationService::canAdministerAccount($user, $model)
             && ! AdministrationService::isSystemAdministrator($model)
             && ! AdministrationService::isMinistryAdministrator($model);
     }

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\AuditLog;
 use App\Models\User;
+use App\Policies\BasePolicy;
 
 /**
  * CLAUDE.md Section 11 / FR-AUDIT-001 to 005: writes the single, immutable
@@ -38,5 +39,23 @@ class AuditService
             'changes' => $changes,
             'ip_address' => $ipAddress,
         ]);
+    }
+
+    /**
+     * DPIA Section 6 ("Expanded access surface from Head of Mission and MFA
+     * visibility"): access by the mission-governance roles is logged. The
+     * only content those roles can open is their own mission's records
+     * (FR-HOM-001 AC2), so each time a Head or Deputy Head of Mission opens
+     * a record or one of its attachments, it is recorded against the
+     * record's department. A no-op for every other role, whose reads are
+     * not audited (FR-AUDIT-001).
+     */
+    public function recordOversightAccess(?User $viewer, string $affectedEntityType, string $affectedEntityId, ?string $ministryId, ?string $ipAddress = null): void
+    {
+        if (! in_array($viewer?->role?->name, BasePolicy::MISSION_OVERSIGHT_ROLES, true)) {
+            return;
+        }
+
+        $this->record($viewer, 'mission_oversight.record_accessed', $affectedEntityType, $affectedEntityId, null, $ipAddress, $ministryId);
     }
 }
