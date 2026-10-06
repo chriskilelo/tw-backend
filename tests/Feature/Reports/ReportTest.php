@@ -20,6 +20,13 @@ use Illuminate\Support\Carbon;
  * "second half" — submission, lateness, and compliance (FR-RPT-014, 016, 018,
  * BR-009).
  */
+/**
+ * The Q1 2027 fixtures below are reported on from inside that quarter: a
+ * report can only be started for a quarter that has begun (FR-RPT-003).
+ * Tests that exercise deadlines travel further forward themselves.
+ */
+beforeEach(fn () => $this->travelTo(Carbon::parse('2027-08-02 09:00:00')));
+
 function reportRole(string $name, string $layer = '2', string $scope = 'mission'): Role
 {
     return Role::query()->firstOrCreate(['name' => $name], ['layer' => $layer, 'scope' => $scope]);
@@ -481,14 +488,16 @@ it('shows submitted, late, and not-yet-submitted missions on the compliance dash
 
     $rows = collect($response->json('data.missions'))->keyBy('mission_id');
 
+    // FR-RPT-018 names four statuses; a mission with no report at all is
+    // "Not Started" (a draft would be "Draft In Progress").
     expect($rows[$missionOnTime->id]['status'])->toBe('submitted_on_time')
         ->and($rows[$missionLate->id]['status'])->toBe('submitted_late')
-        ->and($rows[$missionPending->id]['status'])->toBe('not_yet_submitted')
-        ->and($response->json('data.summary'))->toBe([
-            'submitted_on_time' => 1,
-            'submitted_late' => 1,
-            'not_yet_submitted' => 1,
-        ]);
+        ->and($rows[$missionPending->id]['status'])->toBe('not_started')
+        ->and($response->json('data.summary.submitted_on_time'))->toBe(1)
+        ->and($response->json('data.summary.submitted_late'))->toBe(1)
+        ->and($response->json('data.summary.draft_in_progress'))->toBe(0)
+        ->and($response->json('data.summary.not_started'))->toBe(1)
+        ->and($response->json('data.summary.not_yet_submitted'))->toBe(1);
 });
 
 it('rejects a Ministry Attache from the compliance dashboard', function () {
@@ -557,12 +566,15 @@ it('responds within 1500ms for the periodic reports list with 17 missions x 4 qu
 
     foreach (Mission::factory()->count(17)->create() as $mission) {
         foreach ($quarters as $quarter) {
+            // Submitted: HQ roles list submitted reports only (FR-RPT-017).
             PeriodicReport::factory()->create([
                 'ministry_id' => $ministry->id,
                 'mission_id' => $mission->id,
                 'reporting_period_label' => $quarter['label'],
                 'period_start_date' => $quarter['start'],
                 'period_end_date' => $quarter['end'],
+                'status' => PeriodicReportStatus::Submitted->value,
+                'submitted_at' => now(),
             ]);
         }
     }

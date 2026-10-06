@@ -13,9 +13,10 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Gate;
 
 /**
- * API-001, BR-006: System-Administrator-only management of report template
- * versions. Thin controller: every mutation is delegated to ReportService
- * (CLAUDE.md Section 11).
+ * API-001 Section 5, BR-006: report template versions. Creating a version is
+ * for the System Administrator (or a Ministry Administrator, own department
+ * only); the Ministry PS may also read them. Thin controller: every mutation
+ * is delegated to ReportService (CLAUDE.md Section 11).
  */
 class ReportTemplateController extends Controller
 {
@@ -25,7 +26,7 @@ class ReportTemplateController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        Gate::authorize('manageTemplate', ReportTemplateSection::class);
+        Gate::authorize('viewTemplates', ReportTemplateSection::class);
 
         $sections = ReportTemplateSection::query()
             ->when($request->filled('ministry_id'), fn ($query) => $query->where('ministry_id', $request->string('ministry_id')))
@@ -74,6 +75,7 @@ class ReportTemplateController extends Controller
             'section_title' => $section->section_title,
             'section_type' => $section->section_type,
             'column_schema' => $section->column_schema,
+            'table_config' => $section->table_config,
             'guidance_text' => $section->guidance_text,
         ];
     }

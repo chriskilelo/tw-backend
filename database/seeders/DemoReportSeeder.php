@@ -111,9 +111,14 @@ class DemoReportSeeder extends Seeder
                 default => [],
             };
 
-            foreach ($rows as $order => $rowData) {
-                $reportService->addDataRow($section, $rowData, $order + 1);
-            }
+            // Replaces any rows the draft was pre-populated with (FR-RPT-008);
+            // a stand-in TOTAL row is left out, the total being calculated
+            // on screen (FR-RPT-009).
+            $reportService->saveSectionRows($section, collect($rows)
+                ->reject(fn (array $rowData): bool => $templateSection->isTotalPlaceholder($rowData))
+                ->map(fn (array $rowData): array => ['row_data' => $rowData])
+                ->values()
+                ->all());
         }
 
         if ($index === self::CURRENT_QUARTER_INDEX) {
@@ -134,7 +139,7 @@ class DemoReportSeeder extends Seeder
             : $quarter['deadline']->copy()->subDays(Determinism::seeded("{$missionName}-{$index}-earlydays", 1, 10));
 
         Carbon::setTestNow($submitMoment);
-        $reportService->submitReport($report->fresh(), $attache);
+        $reportService->submitReport($report->fresh(), $attache, notify: false);
         Carbon::setTestNow();
     }
 
