@@ -22,6 +22,45 @@ it('generates an audit_logs entry when an alert is created (TC-FR-AUDIT-001)', f
         ->first();
 
     expect($log)->not->toBeNull();
+    expect($log->changes['before'])->toBeNull();
+    expect($log->changes['after']['country'])->toBe($alert->country);
+});
+
+it('records the full record on both sides of an update, not only the changed fields (TC-FR-AUDIT-002)', function () {
+    $alert = Alert::factory()->create(['sector' => 'Agriculture']);
+    $originalCountry = $alert->country;
+
+    $alert->update(['sector' => 'Manufacturing']);
+
+    $log = AuditLog::where('affected_entity_type', Alert::class)
+        ->where('affected_entity_id', $alert->id)
+        ->where('action', 'alert.updated')
+        ->latest('created_at')
+        ->first();
+
+    expect($log)->not->toBeNull();
+    expect($log->changes['before']['sector'])->toBe('Agriculture');
+    expect($log->changes['after']['sector'])->toBe('Manufacturing');
+    // Unchanged fields are captured too (identically on both sides), so the
+    // audit trail can render a full before/after record, not just a diff.
+    expect($log->changes['before']['country'])->toBe($originalCountry);
+    expect($log->changes['after']['country'])->toBe($originalCountry);
+});
+
+it('records the full prior state as before when a record is deleted (TC-FR-AUDIT-002-B)', function () {
+    $alert = Alert::factory()->create();
+    $alertId = $alert->id;
+
+    $alert->delete();
+
+    $log = AuditLog::where('affected_entity_type', Alert::class)
+        ->where('affected_entity_id', $alertId)
+        ->where('action', 'alert.deleted')
+        ->first();
+
+    expect($log)->not->toBeNull();
+    expect($log->changes['after'])->toBeNull();
+    expect($log->changes['before']['id'])->toBe($alertId);
 });
 
 it('throws when an update is attempted on a persisted audit_logs row (TC-FR-AUDIT-003)', function () {
@@ -51,6 +90,28 @@ it('returns audit log entries filterable by date range (TC-FR-AUDIT-005)', funct
 
     expect($ids)->toContain($inRange->id);
     expect($ids)->not->toContain($outOfRange->id);
+});
+
+it('shows the actor\'s name and email even after the actor is deactivated (BR-002)', function () {
+    $admin = systemAdministratorAuditUser();
+    $officerRole = Role::query()->firstOrCreate(['name' => 'Ministry HQ Officer'], ['layer' => '2', 'scope' => 'ministry']);
+    $officer = User::factory()->create(['role_id' => $officerRole->id, 'full_name' => 'Jane Officer', 'email' => 'jane@sdt.go.ke']);
+
+    $alert = Alert::factory()->create();
+    AuditLog::factory()->create([
+        'user_id' => $officer->id,
+        'action' => 'alert.created',
+        'affected_entity_type' => Alert::class,
+        'affected_entity_id' => $alert->id,
+    ]);
+
+    $officer->delete();
+
+    $response = $this->actingAs($admin)->getJson('/api/v1/audit-logs')->assertOk();
+    $entry = collect($response->json('data'))->firstWhere('user_id', $officer->id);
+
+    expect($entry['user_full_name'])->toBe('Jane Officer');
+    expect($entry['user_email'])->toBe('jane@sdt.go.ke');
 });
 
 // --- FR-AUDIT-006: the Ministry Administrator's department audit view ---

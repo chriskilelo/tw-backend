@@ -10,6 +10,7 @@ use App\Http\Requests\Api\Admin\UpdateUserRequest;
 use App\Http\Resources\UserResource;
 use App\Models\Role;
 use App\Models\User;
+use App\Policies\BasePolicy;
 use App\Services\AdministrationService;
 use App\Services\AuditService;
 use Illuminate\Http\JsonResponse;
@@ -51,6 +52,10 @@ class UserController extends Controller
         $users = User::query()
             ->with(self::RELATIONS)
             ->when($ministryId !== null, fn ($query) => $query->where('ministry_id', $ministryId))
+            ->when(
+                AdministrationService::isMinistryAdministrator($request->user()),
+                fn ($query) => $query->whereNotIn('role_id', Role::query()->whereIn('name', BasePolicy::READ_ONLY_ROLES)->select('id')),
+            )
             ->when($request->filled('role'), fn ($query) => $query->where('role_id', $request->string('role')))
             ->when($request->filled('mission'), fn ($query) => $query->where('mission_id', $request->string('mission')))
             ->when($request->filled('status'), fn ($query) => $query->where('status', $request->string('status')))
@@ -125,6 +130,11 @@ class UserController extends Controller
         Gate::authorize('update', $user);
 
         $changes = $request->only(['full_name', 'email', 'role_id', 'mission_id', 'ministry_id', 'home_ministry_id']);
+
+        $resultingRole = isset($changes['role_id']) ? Role::query()->find($changes['role_id']) : $user->role;
+        if (in_array($resultingRole?->name, BasePolicy::READ_ONLY_ROLES, true) && $user->ministry_id !== null) {
+            $changes['ministry_id'] = null;
+        }
 
         try {
             DB::transaction(function () use ($user, $changes): void {
@@ -234,11 +244,12 @@ class UserController extends Controller
 
     /**
      * IDOR guard (same pattern as NotificationController::markRead()): an
-     * account outside the actor's department is reported as not found.
+     * account outside the actor's department — a mission-governance account
+     * included — is reported as not found.
      */
     private function abortUnlessWithinDepartment(User $actor, User $target): void
     {
-        abort_unless(AdministrationService::canAdministerMinistry($actor, $target->ministry_id), 404);
+        abort_unless(AdministrationService::canAdministerAccount($actor, $target), 404);
     }
 
     /**

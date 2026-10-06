@@ -5,6 +5,7 @@ namespace App\Http\Requests\Api\Admin;
 use App\Http\Requests\Api\FormRequest;
 use App\Models\Role;
 use App\Models\User;
+use App\Policies\BasePolicy;
 use App\Services\AdministrationService;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
@@ -111,6 +112,20 @@ class StoreUserRequest extends FormRequest
 
         if ($homeMinistryId !== null && $role->name !== AdministrationService::SYSTEM_ADMINISTRATOR) {
             $validator->errors()->add('home_ministry_id', 'A home department can only be recorded for a System Administrator.');
+        }
+
+        self::validateNoDepartmentForGovernanceRole($validator, $role, $ministryId);
+    }
+
+    /**
+     * TW-ARCH-001 Section 8.1: the Head and Deputy Head of Mission and the MFA
+     * roles are not ministry-specific. A department on such an account would
+     * put it within that department's Ministry Administrator's reach.
+     */
+    public static function validateNoDepartmentForGovernanceRole(Validator $validator, Role $role, ?string $ministryId): void
+    {
+        if ($ministryId !== null && in_array($role->name, BasePolicy::READ_ONLY_ROLES, true)) {
+            $validator->errors()->add('ministry_id', 'Head of Mission, Deputy Head of Mission and MFA accounts are not affiliated with a department.');
         }
     }
 }

@@ -87,7 +87,7 @@ final class MissionTradeProfiles
             ],
             'Kinshasa' => [
                 'tier' => 'struggling',
-                'primary_attache' => 'Peter Marengo',
+                'primary_attache' => 'Peter Merengo',
                 'junior_attaches' => [],
                 'exports' => ['cement', 'plastics and packaging', 'processed foods', 'steel products', 'pharmaceuticals'],
                 'imports' => ['cobalt and copper concentrates', 'timber'],
@@ -109,7 +109,7 @@ final class MissionTradeProfiles
             ],
             'Arusha' => [
                 'tier' => 'struggling',
-                'primary_attache' => 'Malvin Mulama',
+                'primary_attache' => 'Melvin Mulama',
                 'junior_attaches' => [],
                 'exports' => ['manufactured consumer goods', 'petroleum re-exports', 'plastics'],
                 'imports' => ['gemstones (tanzanite)', 'agricultural produce'],

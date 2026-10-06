@@ -76,6 +76,10 @@ class UpdateUserRequest extends FormRequest
                     $validator->errors()->add('home_ministry_id', 'A home department can only be recorded for a System Administrator.');
                 }
 
+                // Only an explicitly requested department is refused: a stale one
+                // already on the account is cleared by UserController::update().
+                StoreUserRequest::validateNoDepartmentForGovernanceRole($validator, $role, $this->has('ministry_id') ? $this->input('ministry_id') : null);
+
                 if (in_array($role->name, StoreUserRequest::MISSION_SCOPED_ROLES, true) && $missionId === null) {
                     $validator->errors()->add('mission_id', 'A mission assignment is required for this role.');
                 }

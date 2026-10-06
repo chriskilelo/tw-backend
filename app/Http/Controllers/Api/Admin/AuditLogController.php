@@ -54,7 +54,9 @@ class AuditLogController extends Controller
         $actor = $request->user();
 
         $logs = AuditLog::query()
-            ->with('user')
+            // BR-002: deactivating a user never alters historical attribution,
+            // so a soft-deleted actor must still resolve and be named here.
+            ->with(['user' => fn ($query) => $query->withTrashed()])
             // FR-AUDIT-006 / BR-025: a Ministry Administrator sees only its own
             // department's administrative entries — never operational rows,
             // whose `changes` payloads carry alert/inquiry/report content.

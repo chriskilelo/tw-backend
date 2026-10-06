@@ -100,7 +100,7 @@ class DemoRosterSeeder extends Seeder
     {
         $roleId = Role::query()->where('name', 'Ministry Administrator')->value('id');
 
-        $names = ['Patrice Mutua', 'Grace Nyambura', 'Samuel Njoroge'];
+        $names = ['Patrice Mutua', 'Grace Nyambura', 'Mehetabel Gacheri'];
 
         return array_map(
             fn (string $name): User => $this->upsertUser($manifest, $name, $roleId, $ministryId, null, $password),
