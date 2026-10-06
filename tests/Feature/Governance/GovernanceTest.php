@@ -1,10 +1,12 @@
 <?php
 
+use App\Enums\PeriodicReportStatus;
 use App\Models\Alert;
 use App\Models\Directive;
 use App\Models\Inquiry;
 use App\Models\Ministry;
 use App\Models\Mission;
+use App\Models\PeriodicReport;
 use App\Models\Role;
 use App\Models\User;
 
@@ -119,6 +121,11 @@ it('rejects a Ministry Attache from viewing the mission activity feed', function
         ->assertForbidden();
 });
 
+/**
+ * FR-HOM-002 names the record types: "counts of alerts, inquiries, and
+ * reports". A directive is HQ-to-field tasking, not an attache submission,
+ * so it is not counted (it was before the governance upgrade).
+ */
 it('returns current and prior period summary counts by type and status (TC-FR-HOM-002)', function () {
     $ministry = Ministry::factory()->create();
     $mission = Mission::factory()->create();
@@ -126,6 +133,12 @@ it('returns current and prior period summary counts by type and status (TC-FR-HO
 
     Alert::factory()->create(['ministry_id' => $ministry->id, 'mission_id' => $mission->id]);
     Inquiry::factory()->create(['ministry_id' => $ministry->id, 'mission_id' => $mission->id]);
+    PeriodicReport::factory()->create([
+        'ministry_id' => $ministry->id,
+        'mission_id' => $mission->id,
+        'status' => PeriodicReportStatus::Submitted->value,
+        'submitted_at' => now(),
+    ]);
     Directive::factory()->create(['ministry_id' => $ministry->id, 'mission_id' => $mission->id]);
 
     $response = $this->actingAs($hom)->getJson('/api/v1/mission-activity/summary');
@@ -133,7 +146,7 @@ it('returns current and prior period summary counts by type and status (TC-FR-HO
     $response->assertOk();
     expect($response->json('data.current_period.total'))->toBe(3)
         ->and($response->json('data.prior_period.total'))->toBe(0)
-        ->and($response->json('data.current_period.by_type'))->toHaveKeys(['alert', 'inquiry', 'directive']);
+        ->and($response->json('data.current_period.by_type'))->toBe(['alert' => 1, 'inquiry' => 1, 'periodic_report' => 1]);
 });
 
 // --- FR-MFA-001 to 003: MFA Awareness View ------------------------------

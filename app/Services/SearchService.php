@@ -14,11 +14,21 @@ use Illuminate\Database\Eloquent\Builder;
  * and periodic_reports directly (TDD-ADR-007) rather than a separate
  * search service. Ministry scoping is enforced the same way as every other
  * Layer 2 read (CLAUDE.md Section 4, Rule 1): each model's HasMinistryScope
- * global scope, fed by the ministry.scope route middleware.
+ * global scope, fed by the ministry.scope route middleware. Each query also
+ * applies its model's visibleTo() scope, because the governance roles
+ * bypass ministry scoping: a Head or Deputy Head of Mission finds their own
+ * mission's records only (FR-SEARCH-002 AC1, "the user is authorised to
+ * view"). The MFA roles never reach this service (SearchController).
  */
 class SearchService
 {
     private const int RESULTS_PER_TYPE = 25;
+
+    /**
+     * A report's narrative text, for ts_headline: every section's content
+     * with Markdown emphasis, list, heading and table markers removed.
+     */
+    private const string REPORT_HEADLINE_SOURCE = "(SELECT coalesce(regexp_replace(string_agg(rs.content, ' '), '[*_#|`>]+', ' ', 'g'), '') FROM report_sections rs WHERE rs.periodic_report_id = periodic_reports.id)";
 
     /**
      * FR-SEARCH-001 to 003: full-text search across the three indexed
@@ -37,9 +47,9 @@ class SearchService
     public function search(string $query, User $user): array
     {
         $results = [
-            ...$this->searchAlerts($query),
-            ...$this->searchInquiries($query),
-            ...$this->searchPeriodicReports($query),
+            ...$this->searchAlerts($query, $user),
+            ...$this->searchInquiries($query, $user),
+            ...$this->searchPeriodicReports($query, $user),
         ];
 
         usort($results, fn (array $a, array $b) => $b['rank'] <=> $a['rank']);
@@ -60,6 +70,7 @@ class SearchService
     public function countryProfile(string $country, User $user): array
     {
         $alerts = Alert::query()
+            ->visibleTo($user)
             ->with(['mission', 'submittedBy'])
             ->where('country', $country)
             ->orderByDesc('created_at')
@@ -87,9 +98,10 @@ class SearchService
     /**
      * @return array<int, array<string, mixed>>
      */
-    private function searchAlerts(string $query): array
+    private function searchAlerts(string $query, User $user): array
     {
         return Alert::query()
+            ->visibleTo($user)
             ->with('mission')
             ->tap(fn (Builder $builder) => $this->applyFullTextMatch(
                 $builder,
@@ -121,9 +133,10 @@ class SearchService
     /**
      * @return array<int, array<string, mixed>>
      */
-    private function searchInquiries(string $query): array
+    private function searchInquiries(string $query, User $user): array
     {
         return Inquiry::query()
+            ->visibleTo($user)
             ->with('mission')
             ->tap(fn (Builder $builder) => $this->applyFullTextMatch(
                 $builder,
@@ -151,20 +164,23 @@ class SearchService
     }
 
     /**
-     * search_vector on periodic_reports is a plain nullable column, not a
-     * generated one (CLAUDE.md Section 6 Session 2 note): it is sourced
-     * from the child report_sections table, which no ReportService yet
-     * populates it from. This query is wired up for when that lands, but
-     * currently every row's search_vector is NULL, so `NULL @@ tsquery`
-     * never matches and this always returns an empty list.
+     * search_vector on periodic_reports is a plain column, not a generated
+     * one: its source is the child report_sections/report_data_rows tables.
+     * ReportService::submitReport() fills it at submission, so only
+     * submitted reports are ever found (drafts stay the mission's own work
+     * in progress, FR-RPT-017). PeriodicReport::visibleTo() applies the same
+     * per-role rules as the report list — an attache sees their own
+     * mission's reports only (BR-001). The snippet is cut from the report's
+     * narrative text with its Markdown markers stripped.
      *
      * @return array<int, array<string, mixed>>
      */
-    private function searchPeriodicReports(string $query): array
+    private function searchPeriodicReports(string $query, User $user): array
     {
         return PeriodicReport::query()
+            ->visibleTo($user)
             ->with('mission')
-            ->tap(fn (Builder $builder) => $this->applyFullTextMatch($builder, $query, null))
+            ->tap(fn (Builder $builder) => $this->applyFullTextMatch($builder, $query, self::REPORT_HEADLINE_SOURCE))
             ->orderByDesc('rank')
             ->limit(self::RESULTS_PER_TYPE)
             ->get()
@@ -189,9 +205,8 @@ class SearchService
      * two extra raw columns: `rank` (ts_rank relevance score, FR-SEARCH-002
      * AC1) and `snippet` (ts_headline context excerpt with the matched term
      * highlighted, FR-SEARCH-003). $headlineSource is the same expression
-     * each table's search_vector is generated from (CLAUDE.md Section 6);
-     * null for periodic_reports, whose source columns live on a different
-     * table, so its snippet is always empty.
+     * each table's search_vector is generated from (CLAUDE.md Section 6); for
+     * periodic_reports, a subquery over its sections (REPORT_HEADLINE_SOURCE).
      */
     private function applyFullTextMatch(Builder $builder, string $query, ?string $headlineSource): void
     {

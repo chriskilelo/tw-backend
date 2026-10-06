@@ -14,6 +14,7 @@ use App\Http\Resources\AlertResource;
 use App\Models\Alert;
 use App\Models\AlertAttachment;
 use App\Services\AlertService;
+use App\Services\AuditService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -30,7 +31,10 @@ class AlertController extends Controller
 {
     use ApiResponds;
 
-    public function __construct(private readonly AlertService $alertService) {}
+    public function __construct(
+        private readonly AlertService $alertService,
+        private readonly AuditService $auditService,
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -39,6 +43,7 @@ class AlertController extends Controller
         $perPage = min((int) $request->integer('per_page', 25), 100);
 
         $alerts = Alert::query()
+            ->visibleTo($request->user())
             ->with(['mission', 'submittedBy'])
             ->when($request->filled('mission_id'), fn ($query) => $query->where('mission_id', $request->string('mission_id')))
             ->when($request->filled('country'), fn ($query) => $query->where('country', $request->string('country')))
@@ -70,9 +75,11 @@ class AlertController extends Controller
         return $this->respondWithData(new AlertResource($alert->load(['mission', 'submittedBy'])), 201);
     }
 
-    public function show(Alert $alert): JsonResponse
+    public function show(Request $request, Alert $alert): JsonResponse
     {
         Gate::authorize('view', $alert);
+
+        $this->auditService->recordOversightAccess($request->user(), Alert::class, $alert->id, $alert->ministry_id, $request->ip());
 
         return $this->respondWithData(new AlertDetailResource(
             $alert->load(['mission', 'submittedBy', 'assignedTo', 'attachments', 'feedback.postedBy', 'versions'])
@@ -132,11 +139,13 @@ class AlertController extends Controller
      * never the raw file — nothing under the 'uploads' disk is reachable
      * from public/.
      */
-    public function downloadAttachment(Alert $alert, AlertAttachment $attachment): JsonResponse
+    public function downloadAttachment(Request $request, Alert $alert, AlertAttachment $attachment): JsonResponse
     {
         Gate::authorize('view', $alert);
 
         abort_unless($attachment->alert_id === $alert->id, 404);
+
+        $this->auditService->recordOversightAccess($request->user(), AlertAttachment::class, $attachment->id, $alert->ministry_id, $request->ip());
 
         $expiresAt = now()->addMinutes(15);
 

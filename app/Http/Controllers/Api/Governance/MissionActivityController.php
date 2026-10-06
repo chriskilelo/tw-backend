@@ -4,18 +4,27 @@ namespace App\Http\Controllers\Api\Governance;
 
 use App\Http\Controllers\Concerns\ApiResponds;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Api\Governance\GovernanceSummaryRequest;
+use App\Http\Requests\Api\Governance\MissionActivityFeedRequest;
 use App\Models\Mission;
 use App\Services\GovernanceService;
+use App\Support\KpiPeriod;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 
 /**
- * FR-HOM-001 to 003: read-only mission activity feed and summary metrics
- * for the Head of Mission and Deputy Head of Mission, scoped to their own
- * assigned mission (MissionPolicy::viewOwnActivity()). BasePolicy::before()
- * (CLAUDE.md Section 4, Rule 2) structurally denies any non-GET ability for
- * this role before either method here could ever be reached.
+ * FR-HOM-001 to 003: the read-only mission activity feed and summary
+ * metrics for the Head of Mission and Deputy Head of Mission, always for
+ * their own assigned mission — the mission is never a request parameter, so
+ * it cannot be swapped for another. MissionPolicy::viewOwnActivity() denies
+ * every other role, and an oversight account without a mission, with a 403.
+ * BasePolicy::before() (CLAUDE.md Section 4, Rule 2) structurally denies
+ * any write ability for these roles; only GET routes exist here.
+ *
+ * Opening a feed item's full content (FR-HOM-001 AC2) goes through the
+ * owning engine's detail endpoint, where AlertPolicy, InquiryPolicy and
+ * ReportPolicy confine these roles to their own mission.
  */
 class MissionActivityController extends Controller
 {
@@ -23,42 +32,47 @@ class MissionActivityController extends Controller
 
     public function __construct(private readonly GovernanceService $governanceService) {}
 
-    public function index(Request $request): JsonResponse
+    public function index(MissionActivityFeedRequest $request): JsonResponse
     {
         $mission = $this->authorizedOwnMission($request);
+        $validated = $request->validated();
 
-        $ministryId = $request->filled('ministry_id') ? $request->string('ministry_id')->value() : null;
-        $items = $this->governanceService->missionActivityFeed($mission, $ministryId);
+        $feed = $this->governanceService->missionActivityFeed(
+            $mission,
+            [
+                'ministry_id' => $validated['ministry_id'] ?? null,
+                'type' => $validated['type'] ?? null,
+                'status' => $validated['status'] ?? null,
+                'period' => isset($validated['period']) ? KpiPeriod::fromLabel($validated['period']) : null,
+            ],
+            $validated['sort'] ?? '-date',
+            (int) ($validated['per_page'] ?? 25),
+            (int) ($validated['page'] ?? 1),
+        );
 
-        $perPage = min((int) $request->integer('per_page', 25), 100);
-        $page = max((int) $request->integer('page', 1), 1);
-
-        return $this->respondWithData($items->forPage($page, $perPage)->values(), meta: [
-            'current_page' => $page,
-            'per_page' => $perPage,
-            'total' => $items->count(),
-            'last_page' => (int) max(1, ceil($items->count() / $perPage)),
+        return $this->respondWithData($feed->items(), meta: [
+            'current_page' => $feed->currentPage(),
+            'per_page' => $feed->perPage(),
+            'total' => $feed->total(),
+            'last_page' => $feed->lastPage(),
         ]);
     }
 
-    public function summary(Request $request): JsonResponse
+    public function summary(GovernanceSummaryRequest $request): JsonResponse
     {
         $mission = $this->authorizedOwnMission($request);
 
-        return $this->respondWithData($this->governanceService->missionActivitySummary($mission));
+        return $this->respondWithData(
+            $this->governanceService->missionActivitySummary($mission, $request->validated('ministry_id'))
+        );
     }
 
-    /**
-     * mission_id is non-nullable in practice for this role (StoreUserRequest
-     * requires it for Head of Mission / Deputy Head of Mission at creation),
-     * so findOrFail() is the only guard needed: a null or dangling
-     * mission_id surfaces as a 404, not a bespoke validation branch.
-     */
     private function authorizedOwnMission(Request $request): Mission
     {
-        $mission = Mission::findOrFail($request->user()->mission_id);
+        $missionId = $request->user()->mission_id;
+        $mission = $missionId === null ? null : Mission::query()->find($missionId);
 
-        Gate::authorize('viewOwnActivity', $mission);
+        Gate::authorize('viewOwnActivity', [Mission::class, $mission]);
 
         return $mission;
     }

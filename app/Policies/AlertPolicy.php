@@ -22,14 +22,26 @@ class AlertPolicy extends BasePolicy
 
     private const array ACKNOWLEDGING_ROLES = ['Ministry HQ Officer', 'Ministry PS', 'Designated Deputy', 'Acting PS'];
 
+    /**
+     * Every ministry user lists their department's alerts (the global scope
+     * isolates the ministry). The governance roles bypass that scope, so
+     * they are confined here and by Alert::visibleTo(): a Head or Deputy
+     * Head of Mission lists their own mission's alerts (FR-HOM-001), the MFA
+     * roles none (FR-MFA-001 AC2).
+     */
     public function viewAny(User $user): bool
     {
-        return true;
+        return ! $this->isMfaRole($user);
     }
 
+    /**
+     * FR-HOM-001 AC2: a Head or Deputy Head of Mission reads an alert of
+     * their own mission in full, feedback thread included; never another
+     * mission's. The MFA roles never read an alert's content.
+     */
     public function view(User $user, Alert $alert): bool
     {
-        return true;
+        return $this->governanceReadAccess($user, $alert->mission_id) ?? true;
     }
 
     public function create(User $user): bool

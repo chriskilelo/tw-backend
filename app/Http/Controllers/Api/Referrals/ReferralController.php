@@ -11,6 +11,7 @@ use App\Models\Inquiry;
 use App\Models\ReferralAttachment;
 use App\Models\ReferralEntry;
 use App\Models\ReferralOrganisation;
+use App\Services\AuditService;
 use App\Services\ReferralService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -28,7 +29,10 @@ class ReferralController extends Controller
 {
     use ApiResponds;
 
-    public function __construct(private readonly ReferralService $referralService) {}
+    public function __construct(
+        private readonly ReferralService $referralService,
+        private readonly AuditService $auditService,
+    ) {}
 
     public function indexOrganisations(Request $request): JsonResponse
     {
@@ -101,11 +105,19 @@ class ReferralController extends Controller
      * the same as viewing the parent referral entry
      * (ReferralPolicy::view() is open to any ministry-scoped user).
      */
-    public function downloadAttachment(ReferralEntry $referralEntry, ReferralAttachment $attachment): JsonResponse
+    public function downloadAttachment(Request $request, ReferralEntry $referralEntry, ReferralAttachment $attachment): JsonResponse
     {
         Gate::authorize('view', $referralEntry);
 
         abort_unless($attachment->referral_entry_id === $referralEntry->id, 404);
+
+        $this->auditService->recordOversightAccess(
+            $request->user(),
+            ReferralAttachment::class,
+            $attachment->id,
+            $referralEntry->inquiry()->withoutGlobalScopes()->value('ministry_id'),
+            $request->ip(),
+        );
 
         $expiresAt = now()->addMinutes(15);
 

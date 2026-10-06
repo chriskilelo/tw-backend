@@ -14,6 +14,7 @@ use App\Http\Requests\Api\Inquiries\UpdateInquiryStatusRequest;
 use App\Http\Resources\InquiryDetailResource;
 use App\Http\Resources\InquiryResource;
 use App\Models\Inquiry;
+use App\Services\AuditService;
 use App\Services\InquiryMatchingService;
 use App\Services\InquiryService;
 use Illuminate\Http\JsonResponse;
@@ -45,6 +46,7 @@ class InquiryController extends Controller
     public function __construct(
         private readonly InquiryService $inquiryService,
         private readonly InquiryMatchingService $inquiryMatchingService,
+        private readonly AuditService $auditService,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -54,6 +56,7 @@ class InquiryController extends Controller
         $perPage = min((int) $request->integer('per_page', 25), 100);
 
         $inquiries = Inquiry::query()
+            ->visibleTo($request->user())
             ->with(['mission', 'loggedBy'])
             ->when($request->filled('status'), fn ($query) => $query->where('status', $request->string('status')))
             ->when($request->filled('category'), fn ($query) => $query->where('category', $request->string('category')))
@@ -85,9 +88,11 @@ class InquiryController extends Controller
         return $this->respondWithData(new InquiryResource($inquiry->load(['mission', 'loggedBy'])), 201);
     }
 
-    public function show(Inquiry $inquiry): JsonResponse
+    public function show(Request $request, Inquiry $inquiry): JsonResponse
     {
         Gate::authorize('view', $inquiry);
+
+        $this->auditService->recordOversightAccess($request->user(), Inquiry::class, $inquiry->id, $inquiry->ministry_id, $request->ip());
 
         return $this->respondWithData(new InquiryDetailResource($inquiry->load(self::DETAIL_RELATIONS)));
     }

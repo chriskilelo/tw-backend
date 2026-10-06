@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\Scopes\MinistryScope as ModelMinistryScope;
 use App\Models\User;
 use App\Policies\BasePolicy;
 use App\Services\AdministrationService;
@@ -66,6 +67,12 @@ class MinistryScope
             || $request->is('api/v1/kpi-profiles*');
     }
 
+    /**
+     * A bypass role resolves to MinistryScope::UNSCOPED whatever its
+     * ministry_id holds, so the bypass is decided by role name alone, as
+     * documented above. The governance roles are then confined per record
+     * by their policies and the models' visibleTo() scopes instead.
+     */
     protected function resolveMinistryId(?User $user): ?string
     {
         if ($user === null) {
@@ -73,7 +80,7 @@ class MinistryScope
         }
 
         if (in_array($user->role?->name, $this->bypassRoleNames(), true)) {
-            return null;
+            return ModelMinistryScope::UNSCOPED;
         }
 
         return $user->ministry_id;
