@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\AlertStatus;
+use App\Models\Concerns\HasGovernanceVisibility;
 use App\Models\Concerns\HasMinistryScope;
 use Database\Factories\AlertFactory;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
@@ -14,7 +15,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Alert extends Model
 {
     /** @use HasFactory<AlertFactory> */
-    use HasFactory, HasMinistryScope, HasUuids;
+    use HasFactory, HasGovernanceVisibility, HasMinistryScope, HasUuids;
 
     protected $fillable = [
         'ministry_id',

@@ -41,6 +41,26 @@ abstract class BasePolicy
     ];
 
     /**
+     * FR-HOM-001, FR-HOM-003: the two read-only roles that oversee one
+     * mission across every department. They may read their own mission's
+     * submissions in full (FR-HOM-001 AC2) and nothing outside it (DPIA
+     * Section 6, "Expanded access surface").
+     *
+     * @var array<int, string>
+     */
+    public const array MISSION_OVERSIGHT_ROLES = ['Head of Mission', 'Deputy Head of Mission'];
+
+    /**
+     * FR-MFA-001 to 003: the two read-only MFA headquarters roles. They see
+     * aggregate counts and submission metadata through the MFA awareness
+     * view only, never the content of an alert, inquiry or report
+     * (FR-MFA-001 AC2).
+     *
+     * @var array<int, string>
+     */
+    public const array MFA_ROLES = ['MFA HQ Officer', 'MFA Principal Secretary'];
+
+    /**
      * Abilities that represent read access and are exempt from the blanket
      * denial below.
      *
@@ -84,5 +104,33 @@ abstract class BasePolicy
     protected function isKpiScoped(): bool
     {
         return false;
+    }
+
+    /**
+     * The record-level read rule for the governance roles, which bypass
+     * ministry scoping (App\Http\Middleware\MinistryScope) and so must be
+     * confined here rather than by the global scope: a Head or Deputy Head
+     * of Mission reads a record of their own mission only, an MFA role reads
+     * none. Returns null for every other role, leaving the decision to the
+     * concrete policy. A governance account without a mission fails closed.
+     */
+    protected function governanceReadAccess(User $user, ?string $recordMissionId): ?bool
+    {
+        $role = $user->role?->name;
+
+        if (in_array($role, self::MFA_ROLES, true)) {
+            return false;
+        }
+
+        if (in_array($role, self::MISSION_OVERSIGHT_ROLES, true)) {
+            return $user->mission_id !== null && $user->mission_id === $recordMissionId;
+        }
+
+        return null;
+    }
+
+    protected function isMfaRole(User $user): bool
+    {
+        return in_array($user->role?->name, self::MFA_ROLES, true);
     }
 }

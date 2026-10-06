@@ -40,8 +40,6 @@ class MissionPolicy extends BasePolicy
      */
     protected const array MINISTRY_ADMINISTRATION_ABILITIES = ['viewAny', 'view', 'managePostings'];
 
-    private const array MFA_ROLES = ['MFA HQ Officer', 'MFA Principal Secretary'];
-
     public function viewAny(User $user): bool
     {
         return true;
@@ -79,11 +77,14 @@ class MissionPolicy extends BasePolicy
 
     /**
      * FR-HOM-001, FR-HOM-003: Head of Mission and Deputy Head of Mission
-     * may view only their own assigned mission's activity.
+     * may view only their own assigned mission's activity, the Deputy at
+     * all times, with no activation step. An oversight account without a
+     * mission posting is denied (fail closed), as is every other role.
      */
-    public function viewOwnActivity(User $user, Mission $mission): bool
+    public function viewOwnActivity(User $user, ?Mission $mission = null): bool
     {
-        return in_array($user->role?->name, ['Head of Mission', 'Deputy Head of Mission'], true)
+        return in_array($user->role?->name, self::MISSION_OVERSIGHT_ROLES, true)
+            && $mission !== null
             && $user->mission_id === $mission->id;
     }
 

@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\InquiryStatus;
 use App\Enums\InquirySubType;
+use App\Models\Concerns\HasGovernanceVisibility;
 use App\Models\Concerns\HasMinistryScope;
 use Database\Factories\InquiryFactory;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
@@ -15,7 +16,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Inquiry extends Model
 {
     /** @use HasFactory<InquiryFactory> */
-    use HasFactory, HasMinistryScope, HasUuids;
+    use HasFactory, HasGovernanceVisibility, HasMinistryScope, HasUuids;
 
     protected $fillable = [
         'ministry_id',

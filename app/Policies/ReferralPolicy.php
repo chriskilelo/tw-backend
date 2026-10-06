@@ -34,9 +34,19 @@ class ReferralPolicy extends BasePolicy
         return true;
     }
 
+    /**
+     * A referral (and its attachments) is part of its inquiry's content
+     * (FR-REF-006), so the governance roles read it on the inquiry's terms:
+     * a Head or Deputy Head of Mission for their own mission only, the MFA
+     * roles never (FR-HOM-001 AC2, FR-MFA-001 AC2).
+     */
     public function view(User $user, ReferralEntry $referralEntry): bool
     {
-        return true;
+        if (! in_array($user->role?->name, self::READ_ONLY_ROLES, true)) {
+            return true;
+        }
+
+        return (bool) $this->governanceReadAccess($user, $referralEntry->inquiry()->withoutGlobalScopes()->value('mission_id'));
     }
 
     public function create(User $user): bool

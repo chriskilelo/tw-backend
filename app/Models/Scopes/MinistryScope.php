@@ -17,6 +17,16 @@ use Illuminate\Support\Facades\Auth;
  */
 class MinistryScope implements Scope
 {
+    /**
+     * Bound by App\Http\Middleware\MinistryScope for a role that bypasses
+     * ministry scoping by name (System Administrator and the four BR-020
+     * governance roles). A null container instance does not count as
+     * "bound", so binding null for those roles used to fall through to the
+     * user's own ministry_id: a Head of Mission given a department was
+     * silently confined to it, against FR-HOM-001's "every department".
+     */
+    public const string UNSCOPED = '*';
+
     public function apply(Builder $builder, Model $model): void
     {
         // Prefer the value bound by App\Http\Middleware\MinistryScope, since
@@ -27,7 +37,7 @@ class MinistryScope implements Scope
             ? app('current_ministry_id')
             : Auth::user()?->ministry_id;
 
-        if ($ministryId === null) {
+        if ($ministryId === null || $ministryId === self::UNSCOPED) {
             return;
         }
 

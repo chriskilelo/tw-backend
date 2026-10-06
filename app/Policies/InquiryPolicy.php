@@ -29,14 +29,25 @@ use App\Models\User;
  */
 class InquiryPolicy extends BasePolicy
 {
+    /**
+     * The governance roles bypass ministry scoping, so they are confined
+     * here and by Inquiry::visibleTo(): a Head or Deputy Head of Mission
+     * lists their own mission's inquiries (FR-HOM-001), the MFA roles none
+     * (FR-MFA-001 AC2).
+     */
     public function viewAny(User $user): bool
     {
-        return true;
+        return ! $this->isMfaRole($user);
     }
 
+    /**
+     * FR-HOM-001 AC2: a Head or Deputy Head of Mission reads an inquiry of
+     * their own mission in full, progress notes included; never another
+     * mission's. The MFA roles never read an inquiry's content.
+     */
     public function view(User $user, Inquiry $inquiry): bool
     {
-        return true;
+        return $this->governanceReadAccess($user, $inquiry->mission_id) ?? true;
     }
 
     public function create(User $user): bool
