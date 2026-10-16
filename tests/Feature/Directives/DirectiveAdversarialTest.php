@@ -367,12 +367,15 @@ it('counts closed as completed but never as overdue, even when its date has pass
         ->assertJsonPath('data.percentages.completed', 50);
 });
 
-it('shows a deactivated attache by name in the PS overview (BR-002, TC-FR-SDT-008-X)', function () {
+it('shows a deactivated attache and issuer by name in the PS overview (BR-002, TC-FR-SDT-008-X)', function () {
     $world = DirectiveWorld::create();
-    $world->directive();
+    $directive = $world->directive();
+    $this->actingAs($world->attache)->patchJson("/api/v1/directives/{$directive->id}/status", ['status' => 'in_progress'])->assertOk();
     $world->attache->delete();
+    $world->officer->delete();
 
     $this->actingAs($world->ps)->getJson('/api/v1/sdt/directives/overview')
         ->assertOk()
-        ->assertJsonPath('data.recent_directives.0.target_user.full_name', 'Amina Attache');
+        ->assertJsonPath('data.recent_activity.0.by.full_name', 'Amina Attache')
+        ->assertJsonPath('data.issuers.0.full_name', 'Carol Officer');
 });

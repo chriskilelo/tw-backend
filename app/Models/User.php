@@ -41,6 +41,7 @@ class User extends Authenticatable
             'status' => UserStatus::class,
             'language_preference' => LanguagePreference::class,
             'email_notification_preferences' => 'array',
+            'portfolio' => 'array',
             'last_login_at' => 'datetime',
             'failed_login_attempts' => 'integer',
         ];

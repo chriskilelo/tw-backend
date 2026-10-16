@@ -3,7 +3,6 @@
 namespace App\Services;
 
 use App\Enums\AlertStatus;
-use App\Enums\DirectiveStatus;
 use App\Enums\InquiryStatus;
 use App\Models\Alert;
 use App\Models\Directive;
@@ -16,16 +15,15 @@ use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
 /**
- * CLAUDE.md Section 11 / FR-SDT-001, FR-SDT-004 to 006, FR-SDT-012,
- * FR-SDT-013: PS dashboard aggregation, the HQ Officer workspace, and
- * Acting PS activation/deactivation.
+ * CLAUDE.md Section 11 / FR-SDT-001, FR-SDT-004 to 006: PS dashboard
+ * aggregation and Acting PS activation/deactivation. The HQ Officer
+ * workspace (FR-SDT-012 to 015) is App\Services\HqWorkspaceService.
  *
- * psDashboard() and hqWorkspace() rely entirely on the automatic
- * ministry-scoping global scope (App\Models\Scopes\MinistryScope, bound by
- * the ministry.scope route middleware) rather than filtering by
- * ministry_id explicitly — the same pattern AlertController/
- * InquiryController already use. Both methods must only ever be reached
- * from a route inside the ministry.scope middleware group.
+ * psDashboard() relies entirely on the automatic ministry-scoping global
+ * scope (App\Models\Scopes\MinistryScope, bound by the ministry.scope route
+ * middleware) rather than filtering by ministry_id explicitly — the same
+ * pattern AlertController/InquiryController already use. It must only ever
+ * be reached from a route inside the ministry.scope middleware group.
  */
 class SdtService
 {
@@ -51,55 +49,6 @@ class SdtService
                 ])
                 ->count(),
             'directive_summary_this_week' => $this->directiveSummaryForWeek(),
-        ];
-    }
-
-    /**
-     * FR-SDT-012, FR-SDT-013: the HQ Trade Officer's unified workspace.
-     *
-     * Inquiry carries no assignment column (CLAUDE.md Section 6), so
-     * "assigned inquiries" here is the officer's ministry-scoped active
-     * queue (not closed/cancelled) rather than a true per-officer
-     * assignment — a schema limitation, not an oversight; a dedicated
-     * inquiry-assignment column would be a future session's task.
-     *
-     * @param  array<string, mixed>  $filters  Optional 'mission_id', 'status'.
-     * @return array<string, mixed>
-     */
-    public function hqWorkspace(User $officer, array $filters): array
-    {
-        $missionId = $filters['mission_id'] ?? null;
-        $status = $filters['status'] ?? null;
-
-        $assignedAlerts = Alert::query()
-            ->where('assigned_to_user_id', $officer->id)
-            ->when($missionId, fn ($query) => $query->where('mission_id', $missionId))
-            ->when($status, fn ($query) => $query->where('status', $status))
-            ->orderByDesc('created_at')
-            ->get();
-
-        $assignedInquiries = Inquiry::query()
-            ->whereNotIn('status', [InquiryStatus::Closed->value, InquiryStatus::Cancelled->value])
-            ->when($missionId, fn ($query) => $query->where('mission_id', $missionId))
-            ->when($status, fn ($query) => $query->where('status', $status))
-            ->orderByDesc('created_at')
-            ->get();
-
-        $pendingDirectives = Directive::query()
-            ->where('issued_by_user_id', $officer->id)
-            ->whereNotIn('status', [
-                DirectiveStatus::Completed->value,
-                DirectiveStatus::Cancelled->value,
-                DirectiveStatus::Closed->value,
-            ])
-            ->when($missionId, fn ($query) => $query->where('mission_id', $missionId))
-            ->orderByDesc('created_at')
-            ->get();
-
-        return [
-            'assigned_alerts' => $assignedAlerts->values(),
-            'assigned_inquiries' => $assignedInquiries->values(),
-            'pending_directives' => $pendingDirectives->values(),
         ];
     }
 

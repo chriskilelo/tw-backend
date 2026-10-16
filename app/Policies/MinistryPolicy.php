@@ -52,11 +52,14 @@ class MinistryPolicy extends BasePolicy
     }
 
     /**
-     * FR-SDT-012, FR-SDT-013: the HQ Trade Officer's unified workspace.
+     * FR-SDT-012 to 015: the HQ Trade Officer's unified workspace. An
+     * officer with no department is refused (fail closed): the workspace
+     * lists department-wide records, and ministry scoping cannot confine an
+     * account that has no ministry.
      */
     public function viewHqWorkspace(User $user): bool
     {
-        return $user->role?->name === 'Ministry HQ Officer';
+        return $user->role?->name === 'Ministry HQ Officer' && $user->ministry_id !== null;
     }
 
     /**

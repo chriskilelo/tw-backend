@@ -4,18 +4,18 @@ namespace App\Http\Controllers\Api\Sdt;
 
 use App\Http\Controllers\Concerns\ApiResponds;
 use App\Http\Controllers\Controller;
-use App\Models\Ministry;
+use App\Http\Requests\Api\Sdt\DirectiveOverviewRequest;
 use App\Services\DirectiveService;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Gate;
 
 /**
- * PS-level directive views for the requesting user's own ministry, wrapping
- * App\Services\DirectiveService — same authorization boundary and wrapper
- * shape as Sdt\ReportsController (Session 26): Ministry PS (and Acting PS)
- * only, via MinistryPolicy::viewPsDashboard(), since a PS only ever has one
- * ministry.
+ * The SDT console's directive oversight board for the viewer's own
+ * department (App\Services\DirectiveService): FR-SDT-001 (the PS's national
+ * directive summary), FR-SDT-008/010 (the directors' read-only oversight)
+ * and FR-DIR-012. DirectiveOverviewRequest authorises
+ * DirectivePolicy::viewOverview() — Ministry HQ Director, Ministry PS and
+ * Acting PS — before validating. The department is always the viewer's own,
+ * never a parameter.
  */
 class DirectivesController extends Controller
 {
@@ -23,17 +23,17 @@ class DirectivesController extends Controller
 
     public function __construct(private readonly DirectiveService $directiveService) {}
 
-    public function overview(Request $request): JsonResponse
+    public function overview(DirectiveOverviewRequest $request): JsonResponse
     {
-        Gate::authorize('viewPsDashboard', Ministry::class);
-
-        return $this->respondWithData($this->directiveService->getOverview($request->user()->ministry_id));
+        return $this->respondWithData($this->directiveService->getOverview(
+            $request->user()->ministry_id,
+            $request->validated(),
+            $request->user(),
+        ));
     }
 
-    public function compliance(Request $request): JsonResponse
+    public function compliance(DirectiveOverviewRequest $request): JsonResponse
     {
-        Gate::authorize('viewPsDashboard', Ministry::class);
-
         return $this->respondWithData($this->directiveService->getComplianceDashboard($request->user()->ministry_id));
     }
 }

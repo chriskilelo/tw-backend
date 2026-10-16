@@ -4,7 +4,6 @@ namespace App\Services;
 
 use App\Enums\DirectiveStatus;
 use App\Enums\UserStatus;
-use App\Http\Resources\DirectiveResource;
 use App\Models\AuditLog;
 use App\Models\Directive;
 use App\Models\DirectiveNote;
@@ -360,12 +359,9 @@ class DirectiveService
      */
     public function statusHistory(Directive $directive): array
     {
-        $history = AuditLog::query()
+        $history = $this->statusChangeLogs()
             ->with(['user' => fn ($query) => $query->withTrashed()])
-            ->where('affected_entity_type', Directive::class)
             ->where('affected_entity_id', $directive->id)
-            ->where('action', 'directive.updated')
-            ->whereNotNull('changes->after->status')
             ->orderBy('created_at')
             ->get()
             ->map(fn (AuditLog $log): array => [
@@ -620,72 +616,244 @@ class DirectiveService
     }
 
     /**
-     * FR-SDT-008: PS-level directive overview — the ministry summary plus
-     * the most recently issued directives and the currently stale ones.
-     * Rows use the same shape as DirectiveResource.
+     * The directive oversight board behind GET /sdt/directives/overview:
+     * FR-SDT-001 (the national directive summary on the PS console),
+     * FR-SDT-008/010 (the directors' read-only oversight of every mission's
+     * directives), FR-DIR-003, FR-DIR-010 and FR-DIR-012. Filters (both
+     * optional, invalid values ignored): mission_id, issued_by_user_id.
+     * Every figure comes from Directive's derived flags, so it matches
+     * GET /directives with the same filters, which the board links into.
      *
+     * @param  array<string, mixed>  $filters
      * @return array<string, mixed>
      */
-    public function getOverview(string $ministryId): array
+    public function getOverview(string $ministryId, array $filters, User $viewer): array
     {
-        $directives = Directive::query()
-            ->withoutGlobalScopes()
-            ->where('ministry_id', $ministryId)
-            ->with(['mission', 'targetUser' => fn ($query) => $query->withTrashed(), 'issuedBy' => fn ($query) => $query->withTrashed()])
-            ->orderByDesc('created_at')
-            ->get();
-
-        $stale = $directives->filter(fn (Directive $directive): bool => $directive->isStale());
+        $filters = $this->sanitiseSummaryFilters(['mission_id' => $filters['mission_id'] ?? null, 'issued_by_user_id' => $filters['issued_by_user_id'] ?? null]);
+        $directives = $this->directivesFor($ministryId, $filters);
+        $mine = $directives->where('issued_by_user_id', $viewer->id);
 
         return [
-            'summary' => $this->getSummary($ministryId),
-            'recent_directives' => $directives->take(10)->map($this->presentDirective(...))->values(),
-            'stale_directives' => $stale->map($this->presentDirective(...))->values(),
+            'summary' => $this->getSummary($ministryId, $filters),
+            'attention' => $this->attentionCounts($directives),
+            'missions' => $this->missionBoard($ministryId, $directives, $filters['mission_id']),
+            'issuers' => $this->issuerBoard($directives),
+            'my_follow_through' => $mine->isEmpty() ? null : $this->attentionCounts($mine),
+            'recent_activity' => $this->recentActivity($ministryId, $filters),
+            'filters' => ['mission_id' => $filters['mission_id'], 'issued_by_user_id' => $filters['issued_by_user_id']],
         ];
     }
 
     /**
-     * FR-SDT-009: per-mission completion rate dashboard, resolving a
-     * ministry's missions via mission_ministry_links (same pattern as
-     * ReportService::getComplianceDashboard()).
+     * FR-SDT-009 (Session 27 numbering): the per-mission completion board,
+     * every mission posted to the department included, with the ministry
+     * summary. The same rows as the overview's mission board.
      *
      * @return array<string, mixed>
      */
     public function getComplianceDashboard(string $ministryId): array
     {
-        $missions = MissionMinistryLink::query()
-            ->where('ministry_id', $ministryId)
-            ->with('mission')
-            ->get()
-            ->pluck('mission')
-            ->filter()
-            ->unique('id')
-            ->sortBy('name')
-            ->values();
-
-        $directivesByMission = Directive::query()
-            ->withoutGlobalScopes()
-            ->where('ministry_id', $ministryId)
-            ->get()
-            ->groupBy('mission_id');
-
-        $missionRows = $missions->map(function (Mission $mission) use ($directivesByMission): array {
-            $counts = $this->countDirectives($directivesByMission->get($mission->id, collect()));
-
-            return [
-                'mission_id' => $mission->id,
-                'mission_name' => $mission->name,
-                'total' => $counts['total'],
-                'completed' => $counts['completed'],
-                'overdue' => $counts['overdue'],
-                'completion_rate' => $this->percentageOf($counts['completed'], $counts['total']),
-            ];
-        })->values();
-
         return [
-            'missions' => $missionRows,
+            'missions' => $this->missionBoard($ministryId, $this->directivesFor($ministryId, ['mission_id' => null, 'issued_by_user_id' => null]), null),
             'summary' => $this->getSummary($ministryId),
         ];
+    }
+
+    /**
+     * @param  array{mission_id: string|null, issued_by_user_id: string|null}  $filters
+     * @return Collection<int, Directive>
+     */
+    private function directivesFor(string $ministryId, array $filters): Collection
+    {
+        return Directive::query()
+            ->withoutGlobalScopes()
+            ->where('ministry_id', $ministryId)
+            ->when($filters['mission_id'] !== null, fn (Builder $query) => $query->where('mission_id', $filters['mission_id']))
+            ->when($filters['issued_by_user_id'] !== null, fn (Builder $query) => $query->where('issued_by_user_id', $filters['issued_by_user_id']))
+            ->with(['mission', 'issuedBy' => fn ($query) => $query->withTrashed()])
+            ->get();
+    }
+
+    /**
+     * What needs someone's attention now: the open directives and, among
+     * them, the overdue, approaching, stale and undated ones, plus the
+     * completed directives waiting for their issuer to accept and close
+     * them (the review step of the URD lifecycle).
+     *
+     * @param  Collection<int, Directive>  $directives
+     * @return array{open: int, overdue: int, approaching: int, stale: int, no_date: int, awaiting_closure: int}
+     */
+    private function attentionCounts(Collection $directives): array
+    {
+        return [
+            'open' => $directives->filter(fn (Directive $directive): bool => $directive->isOpen())->count(),
+            'overdue' => $directives->filter(fn (Directive $directive): bool => $directive->isOverdue())->count(),
+            'approaching' => $directives->filter(fn (Directive $directive): bool => $directive->dueState() === Directive::DUE_APPROACHING)->count(),
+            'stale' => $directives->filter(fn (Directive $directive): bool => $directive->isStale())->count(),
+            'no_date' => $directives->filter(fn (Directive $directive): bool => $directive->dueState() === Directive::DUE_NO_DATE)->count(),
+            'awaiting_closure' => $directives->filter(fn (Directive $directive): bool => $directive->status === DirectiveStatus::Completed)->count(),
+        ];
+    }
+
+    /**
+     * One row per mission posted to the department (a mission with no
+     * directive yet included, as "idle"), worst first: "attention" (overdue
+     * or stale work), "watch" (due within the approaching window, or
+     * completed work waiting to be closed), "on_track", "idle".
+     *
+     * @param  Collection<int, Directive>  $directives
+     * @return array<int, array<string, mixed>>
+     */
+    private function missionBoard(string $ministryId, Collection $directives, ?string $missionFilter): array
+    {
+        $byMission = $directives->groupBy('mission_id');
+
+        $links = MissionMinistryLink::query()
+            ->where('ministry_id', $ministryId)
+            ->when($missionFilter !== null, fn (Builder $query) => $query->where('mission_id', $missionFilter))
+            ->with(['mission', 'activeAttache' => fn ($query) => $query->withTrashed()])
+            ->get()
+            ->filter(fn (MissionMinistryLink $link): bool => $link->mission !== null)
+            ->unique('mission_id')
+            ->keyBy('mission_id');
+
+        $missions = $links->map(fn (MissionMinistryLink $link): array => [$link->mission, $link->activeAttache]);
+
+        foreach ($byMission as $missionId => $group) {
+            if (! $missions->has($missionId) && $group->first()->mission !== null) {
+                $missions->put($missionId, [$group->first()->mission, null]);
+            }
+        }
+
+        $healthRank = ['attention' => 0, 'watch' => 1, 'on_track' => 2, 'idle' => 3];
+
+        return $missions
+            ->map(function (array $entry, string $missionId) use ($byMission): array {
+                [$mission, $attache] = $entry;
+                $group = $byMission->get($missionId, collect());
+                $counts = $this->countDirectives($group);
+                $attention = $this->attentionCounts($group);
+                $lastProgress = $group->pluck('last_progress_update_at')->filter()->sortDesc()->first();
+
+                return [
+                    'mission_id' => $mission->id,
+                    'mission_name' => $mission->name,
+                    'host_country' => $mission->host_country,
+                    'active' => (bool) $mission->active,
+                    'attache' => $attache === null ? null : ['id' => $attache->id, 'full_name' => $attache->full_name],
+                    'total' => $counts['total'],
+                    'completed' => $counts['completed'],
+                    'completion_rate' => $this->percentageOf($counts['completed'], $counts['total']),
+                    ...$attention,
+                    'last_progress_at' => $lastProgress,
+                    'health' => match (true) {
+                        $attention['overdue'] > 0 || $attention['stale'] > 0 => 'attention',
+                        $attention['approaching'] > 0 || $attention['awaiting_closure'] > 0 => 'watch',
+                        $attention['open'] > 0 => 'on_track',
+                        default => 'idle',
+                    },
+                ];
+            })
+            ->sort(fn (array $a, array $b): int => [$healthRank[$a['health']], -$a['overdue'], -$a['stale'], Str::lower($a['mission_name'])]
+                <=> [$healthRank[$b['health']], -$b['overdue'], -$b['stale'], Str::lower($b['mission_name'])])
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Follow-through per issuing officer: how much of what they issued is
+     * still open, overdue, stale, or completed and waiting for them to
+     * close it. Busiest backlog first.
+     *
+     * @param  Collection<int, Directive>  $directives
+     * @return array<int, array<string, mixed>>
+     */
+    private function issuerBoard(Collection $directives): array
+    {
+        return $directives->groupBy('issued_by_user_id')
+            ->map(function (Collection $group): array {
+                $counts = $this->countDirectives($group);
+
+                return [
+                    'user_id' => $group->first()->issued_by_user_id,
+                    'full_name' => $group->first()->issuedBy?->full_name,
+                    'total' => $counts['total'],
+                    'completion_rate' => $this->percentageOf($counts['completed'], $counts['total']),
+                    ...$this->attentionCounts($group),
+                ];
+            })
+            ->sort(fn (array $a, array $b): int => [-($a['awaiting_closure'] + $a['overdue'] + $a['stale']), Str::lower((string) $a['full_name'])]
+                <=> [-($b['awaiting_closure'] + $b['overdue'] + $b['stale']), Str::lower((string) $b['full_name'])])
+            ->values()
+            ->all();
+    }
+
+    /**
+     * The department's latest directive workflow steps (issued, acknowledged,
+     * started, completed, withdrawn, closed), newest first, from the audit
+     * trail (FR-AUDIT-001).
+     *
+     * @param  array{mission_id: string|null, issued_by_user_id: string|null}  $filters
+     * @return array<int, array<string, mixed>>
+     */
+    private function recentActivity(string $ministryId, array $filters, int $limit = 12): array
+    {
+        $logs = $this->statusChangeLogs()
+            ->with(['user' => fn ($query) => $query->withTrashed()])
+            ->whereIn('affected_entity_id', Directive::query()
+                ->withoutGlobalScopes()
+                ->where('ministry_id', $ministryId)
+                ->when($filters['mission_id'] !== null, fn (Builder $query) => $query->where('mission_id', $filters['mission_id']))
+                ->when($filters['issued_by_user_id'] !== null, fn (Builder $query) => $query->where('issued_by_user_id', $filters['issued_by_user_id']))
+                ->select('id'))
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->limit($limit)
+            ->get();
+
+        $directives = Directive::query()
+            ->withoutGlobalScopes()
+            ->with('mission')
+            ->whereIn('id', $logs->pluck('affected_entity_id')->unique())
+            ->get()
+            ->keyBy('id');
+
+        return $logs
+            ->filter(fn (AuditLog $log): bool => $directives->has($log->affected_entity_id))
+            ->map(function (AuditLog $log) use ($directives): array {
+                $directive = $directives->get($log->affected_entity_id);
+
+                return [
+                    'id' => $log->id,
+                    'directive_id' => $directive->id,
+                    'description' => $this->excerpt($directive->description, 140),
+                    'mission' => $directive->mission === null ? null : ['id' => $directive->mission->id, 'name' => $directive->mission->name],
+                    'from_status' => $log->changes['before']['status'] ?? null,
+                    'status' => $log->changes['after']['status'] ?? null,
+                    'at' => $log->created_at,
+                    'by' => $log->user === null ? null : ['id' => $log->user->id, 'full_name' => $log->user->full_name],
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
+    /**
+     * The directive.updated audit rows that record a status change.
+     * ModelObserver stores the full record on both sides of every update, so
+     * a progress note or a revision (which only bump last_progress_update_at
+     * or the target date) also carries a status; only a row whose status
+     * differs from the one before it is a workflow step.
+     *
+     * @return Builder<AuditLog>
+     */
+    private function statusChangeLogs(): Builder
+    {
+        return AuditLog::query()
+            ->where('affected_entity_type', Directive::class)
+            ->where('action', 'directive.updated')
+            ->whereNotNull('changes->after->status')
+            ->whereRaw("(changes->'after'->>'status') is distinct from (changes->'before'->>'status')");
     }
 
     /**
@@ -746,14 +914,6 @@ class DirectiveService
     private function percentageOf(int $count, int $total): float
     {
         return $total > 0 ? round(($count / $total) * 100, 1) : 0.0;
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function presentDirective(Directive $directive): array
-    {
-        return (new DirectiveResource($directive))->resolve(request());
     }
 
     private function notifyTargetAttache(Directive $directive): void

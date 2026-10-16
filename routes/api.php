@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\Admin\MissionController;
 use App\Http\Controllers\Api\Admin\MissionLinkController;
 use App\Http\Controllers\Api\Admin\RoleController;
 use App\Http\Controllers\Api\Admin\UserController;
+use App\Http\Controllers\Api\Admin\UserPortfolioController;
 use App\Http\Controllers\Api\Alerts\AlertController;
 use App\Http\Controllers\Api\Auth\LoginController;
 use App\Http\Controllers\Api\Auth\LogoutController;
@@ -80,6 +81,11 @@ Route::prefix('v1')->group(function (): void {
             Route::post('/{user}/deactivate', [UserController::class, 'deactivate']);
             Route::post('/{user}/reactivate', [UserController::class, 'reactivate']);
             Route::post('/{user}/resend-activation', [UserController::class, 'resendActivation']);
+
+            // FR-SDT-012: an HQ Trade Officer's portfolio, configured by the
+            // account's administrators (UserPolicy::managePortfolio()).
+            Route::get('/{user}/portfolio', [UserPortfolioController::class, 'show']);
+            Route::put('/{user}/portfolio', [UserPortfolioController::class, 'update']);
         });
 
         Route::prefix('missions')->group(function (): void {
@@ -351,7 +357,18 @@ Route::prefix('v1')->group(function (): void {
             // Section 4, Rule 1).
             Route::middleware('ministry.scope')->group(function (): void {
                 Route::get('/dashboard', [PsDashboardController::class, 'show']);
-                Route::get('/hq-workspace', [HqWorkspaceController::class, 'show']);
+
+                // FR-SDT-012 to 015: the HQ Trade Officer workspace. Ministry
+                // HQ Officer only (MinistryPolicy::viewHqWorkspace(), checked
+                // by each request class before it validates). Read-only: row
+                // actions use the engines' own endpoints and policies.
+                Route::prefix('hq-workspace')->group(function (): void {
+                    Route::get('/', [HqWorkspaceController::class, 'show']);
+                    Route::get('/alerts', [HqWorkspaceController::class, 'alerts']);
+                    Route::get('/inquiries', [HqWorkspaceController::class, 'inquiries']);
+                    Route::get('/directives', [HqWorkspaceController::class, 'directives']);
+                    Route::get('/reports', [HqWorkspaceController::class, 'reports']);
+                });
 
                 // Session 26: FR-SDT-007, FR-SDT-015. Ministry PS (and
                 // Acting PS) only, via MinistryPolicy::viewPsDashboard() —
@@ -361,10 +378,11 @@ Route::prefix('v1')->group(function (): void {
                     Route::get('/submission-summary', [SdtReportsController::class, 'submissionSummary']);
                 });
 
-                // Session 27: FR-SDT-008 (PS-level directive overview),
-                // FR-SDT-009 (completion rate dashboard). Same boundary as
-                // /sdt/reports above — Ministry PS (and Acting PS) only,
-                // via MinistryPolicy::viewPsDashboard().
+                // The directive oversight board: FR-SDT-001 (the PS's
+                // national directive summary), FR-SDT-008/010 (the
+                // directors' read-only oversight), FR-DIR-012. Ministry HQ
+                // Director, Ministry PS and Acting PS, via
+                // DirectivePolicy::viewOverview() (DirectiveOverviewRequest).
                 Route::prefix('directives')->group(function (): void {
                     Route::get('/overview', [SdtDirectivesController::class, 'overview']);
                     Route::get('/compliance', [SdtDirectivesController::class, 'compliance']);

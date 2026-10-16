@@ -136,6 +136,13 @@ class UserController extends Controller
             $changes['ministry_id'] = null;
         }
 
+        // FR-SDT-012: a portfolio belongs to an HQ officer of one department;
+        // it lapses when the account stops being one or changes department.
+        $resultingMinistryId = array_key_exists('ministry_id', $changes) ? $changes['ministry_id'] : $user->ministry_id;
+        if ($user->portfolio !== null && ($resultingRole?->name !== UserPortfolioController::HQ_OFFICER || $resultingMinistryId !== $user->ministry_id)) {
+            $changes['portfolio'] = null;
+        }
+
         try {
             DB::transaction(function () use ($user, $changes): void {
                 if (isset($changes['role_id']) && $changes['role_id'] !== $user->role_id) {

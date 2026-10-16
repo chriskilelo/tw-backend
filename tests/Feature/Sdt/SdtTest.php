@@ -9,6 +9,7 @@ use App\Models\Directive;
 use App\Models\Inquiry;
 use App\Models\Ministry;
 use App\Models\Mission;
+use App\Models\MissionMinistryLink;
 use App\Models\Role;
 use App\Models\User;
 
@@ -217,11 +218,13 @@ it('lets a Ministry HQ Officer see only their own assigned items in the workspac
         'ministry_id' => $ministry->id,
         'mission_id' => $mission->id,
         'assigned_to_user_id' => $officerA->id,
+        'status' => AlertStatus::Assigned->value,
     ]);
     Alert::factory()->create([
         'ministry_id' => $ministry->id,
         'mission_id' => $mission->id,
         'assigned_to_user_id' => $officerB->id,
+        'status' => AlertStatus::Assigned->value,
     ]);
 
     $ownDirective = Directive::factory()->create([
@@ -237,12 +240,8 @@ it('lets a Ministry HQ Officer see only their own assigned items in the workspac
         'status' => DirectiveStatus::Issued->value,
     ]);
 
-    $response = $this->actingAs($officerA)->getJson('/api/v1/sdt/hq-workspace');
-
-    $response->assertOk();
-
-    $alertIds = collect($response->json('data.assigned_alerts'))->pluck('id');
-    $directiveIds = collect($response->json('data.pending_directives'))->pluck('id');
+    $alertIds = collect($this->actingAs($officerA)->getJson('/api/v1/sdt/hq-workspace/alerts')->assertOk()->json('data'))->pluck('id');
+    $directiveIds = collect($this->actingAs($officerA)->getJson('/api/v1/sdt/hq-workspace/directives?queue=open')->assertOk()->json('data'))->pluck('id');
 
     expect($alertIds)->toEqual(collect([$ownAlert->id]))
         ->and($directiveIds)->toEqual(collect([$ownDirective->id]));
@@ -261,23 +260,27 @@ it('filters the HQ workspace by mission_id', function () {
     $ministry = Ministry::factory()->create();
     $missionA = Mission::factory()->create();
     $missionB = Mission::factory()->create();
+    MissionMinistryLink::factory()->create(['mission_id' => $missionA->id, 'ministry_id' => $ministry->id]);
+    MissionMinistryLink::factory()->create(['mission_id' => $missionB->id, 'ministry_id' => $ministry->id]);
     $officer = ministryHqOfficer($ministry);
 
     $alertA = Alert::factory()->create([
         'ministry_id' => $ministry->id,
         'mission_id' => $missionA->id,
         'assigned_to_user_id' => $officer->id,
+        'status' => AlertStatus::Assigned->value,
     ]);
     Alert::factory()->create([
         'ministry_id' => $ministry->id,
         'mission_id' => $missionB->id,
         'assigned_to_user_id' => $officer->id,
+        'status' => AlertStatus::Assigned->value,
     ]);
 
-    $response = $this->actingAs($officer)->getJson("/api/v1/sdt/hq-workspace?mission_id={$missionA->id}");
+    $response = $this->actingAs($officer)->getJson("/api/v1/sdt/hq-workspace/alerts?mission_id={$missionA->id}");
 
     $response->assertOk();
-    $alertIds = collect($response->json('data.assigned_alerts'))->pluck('id');
+    $alertIds = collect($response->json('data'))->pluck('id');
     expect($alertIds)->toEqual(collect([$alertA->id]));
 });
 
@@ -459,7 +462,11 @@ it('lets a Ministry PS view the directive overview (TC-FR-SDT-008)', function ()
     $response = $this->actingAs($ps)->getJson('/api/v1/sdt/directives/overview');
 
     $response->assertOk()
-        ->assertJsonStructure(['data' => ['summary' => ['issued', 'in_progress', 'overdue', 'completed'], 'recent_directives', 'stale_directives']]);
+        ->assertJsonStructure(['data' => [
+            'summary' => ['issued', 'in_progress', 'overdue', 'completed'],
+            'attention' => ['open', 'overdue', 'approaching', 'stale', 'no_date', 'awaiting_closure'],
+            'missions', 'issuers', 'my_follow_through', 'recent_activity', 'filters',
+        ]]);
 });
 
 it('lets a Ministry PS view the directive compliance dashboard (TC-FR-SDT-009)', function () {

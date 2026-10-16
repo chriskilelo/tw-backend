@@ -105,9 +105,32 @@ class AlertService
         }
     }
 
-    public function acknowledgeAlert(Alert $alert, User $recipient): void
+    /**
+     * FR-ALERT-009. Idempotent: the row is re-read under FOR UPDATE, so a
+     * repeated or concurrent acknowledgement (a double click in the HQ
+     * workspace, two tabs) changes nothing and does not notify the attache
+     * twice.
+     *
+     * @return bool Whether this call acknowledged the alert.
+     */
+    public function acknowledgeAlert(Alert $alert, User $recipient): bool
     {
-        $alert->forceFill(['status' => AlertStatus::Acknowledged])->save();
+        $acknowledged = DB::transaction(function () use ($alert): bool {
+            $locked = Alert::query()->withoutGlobalScopes()->whereKey($alert->id)->lockForUpdate()->firstOrFail();
+            $alert->setRawAttributes($locked->getAttributes(), true);
+
+            if ($alert->status === AlertStatus::Acknowledged) {
+                return false;
+            }
+
+            $alert->forceFill(['status' => AlertStatus::Acknowledged])->save();
+
+            return true;
+        });
+
+        if (! $acknowledged) {
+            return false;
+        }
 
         $submitter = $alert->submittedBy;
 
@@ -119,6 +142,8 @@ class AlertService
                 "/alerts/{$alert->id}",
             );
         }
+
+        return true;
     }
 
     public function postFeedback(Alert $alert, string $content, User $poster): AlertFeedback

@@ -146,6 +146,20 @@ class DirectivePolicy extends BasePolicy
     }
 
     /**
+     * The SDT console's directive oversight board (GET /sdt/directives/
+     * overview and /compliance): FR-SDT-001 (the PS's national directive
+     * summary) and FR-SDT-008/010 (the directors' read-only oversight of
+     * every mission's directives), so the same roles as the FR-DIR-012
+     * summary. Read-only: acting on a directive stays with its issuer and
+     * target. An account with no department is refused (fail closed), since
+     * the board is always one department's.
+     */
+    public function viewOverview(User $user): bool
+    {
+        return $this->hasRole($user, self::SUMMARY_ROLES) && $user->ministry_id !== null;
+    }
+
+    /**
      * @param  array<int, string>  $roles
      */
     private function hasRole(User $user, array $roles): bool

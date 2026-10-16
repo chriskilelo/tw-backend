@@ -5,10 +5,12 @@ namespace App\Services;
 use App\Enums\InquiryEventType;
 use App\Enums\InquiryStatus;
 use App\Enums\InquirySubType;
+use App\Enums\UserStatus;
 use App\Models\Inquiry;
 use App\Models\InquiryEvent;
 use App\Models\InquiryNote;
 use App\Models\User;
+use App\Support\HqPortfolio;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -56,7 +58,10 @@ class InquiryService
 
     private const string REDACTED_PLACEHOLDER = '[redacted]';
 
-    public function __construct(private readonly AuditService $auditService) {}
+    public function __construct(
+        private readonly AuditService $auditService,
+        private readonly NotificationService $notificationService,
+    ) {}
 
     /**
      * @param  array<string, mixed>  $data  Already validated by StoreInquiryRequest.
@@ -122,6 +127,44 @@ class InquiryService
             'note' => $note,
             'logged_by_user_id' => $actor->id,
         ]);
+
+        if ($eventType === InquiryEventType::HqNotified->value) {
+            $this->notifyHq($inquiry, $actor);
+        }
+    }
+
+    /**
+     * FR-INQ-009 ("Notify HQ on Configured Events"): the inquiry joins the
+     * notified-inquiry queue of the HQ workspace (FR-SDT-013) at once, and
+     * the HQ officers whose portfolio covers it (FR-SDT-012) are told so;
+     * when no portfolio covers it, every active HQ officer of the department
+     * is told instead, so no notified inquiry goes unseen. In-app only.
+     */
+    private function notifyHq(Inquiry $inquiry, User $actor): void
+    {
+        $officers = User::query()
+            ->where('ministry_id', $inquiry->ministry_id)
+            ->where('status', UserStatus::Active->value)
+            ->whereHas('role', fn ($query) => $query->where('name', 'Ministry HQ Officer'))
+            ->get();
+
+        $covering = $officers->filter(function (User $officer) use ($inquiry): bool {
+            $portfolio = HqPortfolio::forUser($officer);
+
+            return ! $portfolio->isEmpty() && Inquiry::query()
+                ->withoutGlobalScopes()
+                ->whereKey($inquiry->id)
+                ->tap(fn ($query) => $portfolio->constrainInquiries($query))
+                ->exists();
+        });
+
+        $inquiry->loadMissing('mission');
+        $context = collect([$inquiry->category, $inquiry->mission?->name])->filter()->implode(', ');
+        $message = "{$actor->full_name} notified HQ of inquiry {$inquiry->reference_number}".($context === '' ? '.' : " ({$context}).");
+
+        foreach ($covering->isNotEmpty() ? $covering : $officers as $officer) {
+            $this->notificationService->notify($officer, 'inquiry_hq_notified', $message, "/inquiries/{$inquiry->id}");
+        }
     }
 
     /**

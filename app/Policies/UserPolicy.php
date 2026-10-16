@@ -24,7 +24,7 @@ use App\Services\AdministrationService;
 class UserPolicy extends BasePolicy
 {
     protected const array MINISTRY_ADMINISTRATION_ABILITIES = [
-        'viewAny', 'view', 'create', 'update', 'deactivate', 'reactivate', 'resendActivation', 'viewDashboard',
+        'viewAny', 'view', 'create', 'update', 'deactivate', 'reactivate', 'resendActivation', 'viewDashboard', 'managePortfolio',
     ];
 
     public function viewAny(User $user): bool
@@ -67,6 +67,17 @@ class UserPolicy extends BasePolicy
     }
 
     public function resendActivation(User $user, User $model): bool
+    {
+        return $this->canManageAccount($user, $model);
+    }
+
+    /**
+     * FR-SDT-012: configure a Ministry HQ Officer's portfolio — part of the
+     * account's department configuration, so the same administrators as
+     * any other account change (Admin\UserPortfolioController also requires
+     * the account to be an HQ officer of a department).
+     */
+    public function managePortfolio(User $user, User $model): bool
     {
         return $this->canManageAccount($user, $model);
     }
